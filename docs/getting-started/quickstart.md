@@ -6,7 +6,7 @@
 
 - Kubernetes 1.25 以上（k3s / EKS / GKE / AKS など）
 - Helm 3.10 以上
-- ZFS サーバー（[ZFS Agent セットアップ](zfs-agent-setup.md) を先に完了してください）
+- ZFS サーバー（[ZFS サーバーセットアップ](zfs-server-setup.md) を先に完了してください）
 
 > AWS FSx for OpenZFS を使う場合は ZFS Agent は不要ですが、現バージョンでは ZFS Agent 経由のみサポートしています。
 

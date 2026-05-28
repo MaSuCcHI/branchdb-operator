@@ -25,7 +25,7 @@ sudo ZFS_DEVICE=/dev/sdb \
 
 ## 詳細手順
 
-[ZFS Agent セットアップガイド](../../docs/getting-started/zfs-agent-setup.md) を参照してください。
+[ZFS サーバーセットアップガイド](../../docs/getting-started/zfs-server-setup.md) を参照してください。
 
 ## 手動インストール
 

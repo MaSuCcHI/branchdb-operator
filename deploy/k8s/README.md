@@ -78,7 +78,7 @@ jobs:
 | ガイド | 内容 |
 |---|---|
 | [クイックスタート](../../docs/getting-started/quickstart.md) | 5分インストール手順 |
-| [ZFS Agent セットアップ](../../docs/getting-started/zfs-agent-setup.md) | ZFS サーバーの準備 |
+| [ZFS サーバーセットアップ](../../docs/getting-started/zfs-server-setup.md) | ZFS サーバーの準備 |
 | [Helm チャートリファレンス](../../docs/deploy/helm.md) | 全 values パラメータ |
 | [Ingress での外部公開](../../docs/deploy/ingress.md) | HTTPS 公開手順 |
 | [トラブルシューティング](../../docs/operations/troubleshooting.md) | よくある問題と解決策 |

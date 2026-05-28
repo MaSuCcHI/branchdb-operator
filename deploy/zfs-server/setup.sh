@@ -1,5 +1,5 @@
 #!/bin/bash
-# BranchDB ZFS Agent セットアップスクリプト
+# BranchDB ZFS サーバーセットアップスクリプト
 #
 # ZFS ストレージサーバー（Kubernetes クラスターとは別の Linux マシン）で実行します。
 # 以下をまとめてセットアップします:
@@ -26,7 +26,7 @@ ZFSAGENT_TOKEN="${ZFSAGENT_TOKEN:-}"
 ZFSAGENT_INSTALL_DIR="${ZFSAGENT_INSTALL_DIR:-/usr/local/bin}"
 REPO_URL="https://github.com/MaSuCcHI/branchdb-operator.git"
 
-echo "=== BranchDB ZFS Agent セットアップ ==="
+echo "=== BranchDB ZFS サーバーセットアップ ==="
 echo "  プール        : ${POOL_NAME}"
 echo "  dataset       : ${DATASET_NAME}"
 echo "  K8s Pod CIDR  : ${K8S_POD_CIDR}"
