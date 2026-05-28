@@ -25,6 +25,12 @@ mounts:
   - location: ~
     writable: true
 
+# ネットワーク: DNS を明示して VM 内からインターネットに接続できるようにする
+network:
+  dns:
+    - 8.8.8.8
+    - 8.8.4.4
+
 # ZFS カーネルモジュールと NFS サーバーを初回起動時に用意する
 provision:
   - mode: system
