@@ -14,26 +14,6 @@ Kubernetes 環境で BranchDB Pro を動かす手順です。
 | **推奨規模** | 中規模（開発者 10〜50 人） | 大規模・エンタープライズ |
 
 ---
-
-## shared-vm からの移行
-
-```
-shared-vm → k8s への移行パス:
-
-1. ZFS スナップショットを取得
-   curl -X POST http://<shared-vm>:8080/snapshots
-
-2. スナップショットを NFS サーバー or FSx に転送
-   zfs send tank/mysql@<snapshot> | ssh <nfs-server> zfs recv tank/mysql@<snapshot>
-   # FSx の場合は AWS DataSync を使用
-
-3. k8s クラスターに Operator をデプロイ（下記手順参照）
-
-4. shared-vm を停止
-```
-
----
-
 ## zfs-nfs: 自前 ZFS+NFS サーバー構成
 
 ### アーキテクチャ
