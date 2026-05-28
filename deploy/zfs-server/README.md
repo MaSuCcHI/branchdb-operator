@@ -1,4 +1,4 @@
-# deploy/zfs-agent
+# deploy/zfs-server
 
 ZFS ストレージサーバー（Kubernetes クラスターとは別の Linux マシン）への
 ZFS Agent デプロイファイル一式です。
@@ -6,7 +6,7 @@ ZFS Agent デプロイファイル一式です。
 ## ファイル構成
 
 ```
-deploy/zfs-agent/
+deploy/zfs-server/
 ├── setup.sh                 ← セットアップスクリプト（ワンライナー実行）
 └── systemd/
     └── zfsagent.service     ← systemd ユニットファイル（手動インストール用）
@@ -18,7 +18,7 @@ deploy/zfs-agent/
 sudo ZFS_DEVICE=/dev/sdb \
      K8S_POD_CIDR=10.42.0.0/16 \
      ZFSAGENT_TOKEN=$(openssl rand -hex 32) \
-     bash deploy/zfs-agent/setup.sh
+     bash deploy/zfs-server/setup.sh
 ```
 
 完了後に表示される Helm インストールコマンドを使用してください。
@@ -33,7 +33,7 @@ sudo ZFS_DEVICE=/dev/sdb \
 systemd ユニットファイルをコピーして編集してください：
 
 ```bash
-cp deploy/zfs-agent/systemd/zfsagent.service /etc/systemd/system/
+cp deploy/zfs-server/systemd/zfsagent.service /etc/systemd/system/
 # /etc/systemd/system/zfsagent.service を編集して ZFSAGENT_TOKEN などを設定
 systemctl daemon-reload
 systemctl enable --now zfsagent
