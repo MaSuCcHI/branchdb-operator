@@ -1,0 +1,25 @@
+[Unit]
+Description=BranchDB ZFS Agent
+Documentation=https://github.com/MaSuCcHI/branchdb-operator/blob/main/docs/getting-started/zfs-agent-setup.md
+After=network.target nfs-server.service
+Requires=nfs-server.service
+
+[Service]
+Type=simple
+User=root
+
+# ZFS Agent の設定（環境に合わせて変更してください）
+Environment=ZFSAGENT_ADDR=:9090
+Environment=ZFSAGENT_TOKEN=changeme
+Environment=ZFSAGENT_POOL=tank
+Environment=ZFSAGENT_DATASET=mysql
+
+ExecStart=/usr/local/bin/zfsagent
+Restart=on-failure
+RestartSec=5s
+
+# ログは journald に出力される
+# journalctl -u zfsagent -f で確認できる
+
+[Install]
+WantedBy=multi-user.target
