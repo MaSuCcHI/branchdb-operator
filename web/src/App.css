@@ -1,4 +1,4 @@
-/* K8s Admin Console Styles */
+/* Admin Console Styles */
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -36,14 +36,14 @@ body {
 }
 
 /* Layout */
-.k8s-layout {
+.layout {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
 /* Header */
-.k8s-header {
+.header {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   padding: 0 24px;
@@ -56,7 +56,7 @@ body {
   z-index: 100;
 }
 
-.k8s-header h1 {
+.header h1 {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
@@ -65,13 +65,13 @@ body {
 }
 
 /* Nav */
-.k8s-nav {
+.nav {
   display: flex;
   gap: 4px;
   flex: 1;
 }
 
-.k8s-nav button {
+.nav button {
   background: none;
   border: none;
   color: var(--text-muted);
@@ -83,17 +83,17 @@ body {
   transition: background 0.15s, color 0.15s;
 }
 
-.k8s-nav button:hover {
+.nav button:hover {
   background: var(--bg-card-hover);
   color: var(--text);
 }
 
-.k8s-nav button.active {
+.nav button.active {
   background: var(--accent);
   color: #fff;
 }
 
-.k8s-header-right {
+.header-right {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -116,7 +116,7 @@ body {
 }
 
 /* Main */
-.k8s-main {
+.main {
   flex: 1;
   padding: 24px;
   max-width: 1400px;
@@ -164,14 +164,14 @@ body {
 .stat-card.deleting .stat-value { color: var(--deleting); }
 
 /* Toolbar */
-.k8s-toolbar {
+.toolbar {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
   align-items: center;
 }
 
-.k8s-toolbar .spacer {
+.toolbar .spacer {
   flex: 1;
 }
 

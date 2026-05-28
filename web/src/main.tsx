@@ -1,10 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './index.css'
-import K8sApp from './K8sApp'
+import App from './App'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <K8sApp />
+    <App />
   </StrictMode>,
 )

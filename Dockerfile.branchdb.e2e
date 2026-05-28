@@ -1,0 +1,5 @@
+# E2E 用 Dockerfile: Mac 側でクロスコンパイル済みの Linux バイナリを使用。
+# インターネットアクセス不要（FROM scratch なのでベースイメージ pull なし）。
+FROM scratch
+COPY bin/branchdb-linux /branchdb
+ENTRYPOINT ["/branchdb"]

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { k8sApi } from './k8sApi'
-import type { K8sBranch, K8sStats, K8sSnapshot, PodInfo, BranchMetrics } from './k8sTypes'
-import './K8sApp.css'
+import { api } from './api'
+import type { Branch, Stats, Snapshot, PodInfo, BranchMetrics } from './types'
+import './App.css'
 
 // ── Utility ─────────────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function ttlLabel(branch: K8sBranch): string {
+function ttlLabel(branch: Branch): string {
   if (!branch.expires_at) return 'no expiry'
   const ms = new Date(branch.expires_at).getTime() - Date.now()
   if (ms <= 0) return 'expired'
@@ -28,7 +28,7 @@ function phaseClass(phase: string): string {
   return phase.toLowerCase() || 'pending'
 }
 
-function hasInProgress(branches: K8sBranch[]): boolean {
+function hasInProgress(branches: Branch[]): boolean {
   return branches.some(b =>
     b.status === 'Creating' || b.status === 'Pending' || b.status === 'Deleting'
   )
@@ -154,11 +154,11 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
 
 // ── DetailPanel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({ branch }: { branch: K8sBranch }) {
+function DetailPanel({ branch }: { branch: Branch }) {
   const [pod, setPod] = useState<PodInfo | null>(null)
 
   useEffect(() => {
-    k8sApi.branches.getPod(branch.name).then(setPod).catch(() => null)
+    api.branches.getPod(branch.name).then(setPod).catch(() => null)
   }, [branch.name])
 
   return (
@@ -259,7 +259,7 @@ function DetailPanel({ branch }: { branch: K8sBranch }) {
 // ── BranchRow ────────────────────────────────────────────────────────────────
 
 interface BranchRowProps {
-  branch: K8sBranch
+  branch: Branch
   selected: boolean
   onSelect: () => void
   onDelete: (name: string) => void
@@ -309,8 +309,8 @@ function BranchRow({ branch, selected, onSelect, onDelete, metrics }: BranchRowP
 // ── BranchesTab ──────────────────────────────────────────────────────────────
 
 interface BranchesTabProps {
-  branches: K8sBranch[]
-  stats: K8sStats | null
+  branches: Branch[]
+  stats: Stats | null
   onRefresh: () => void
   onCreate: (name: string, snapshotRef: string, ttlHours: number) => Promise<void>
   onDelete: (name: string) => Promise<void>
@@ -326,7 +326,7 @@ function BranchesTab({ branches, stats, onRefresh, onCreate, onDelete }: Branche
     for (const b of branches) {
       if (b.status === 'Ready' && metrics[b.name] === undefined) {
         setMetrics(prev => ({ ...prev, [b.name]: null }))
-        k8sApi.branches.getMetrics(b.name)
+        api.branches.getMetrics(b.name)
           .then(m => setMetrics(prev => ({ ...prev, [b.name]: m })))
           .catch(() => setMetrics(prev => ({ ...prev, [b.name]: { available: false, threads_connected: 0 } })))
       }
@@ -359,7 +359,7 @@ function BranchesTab({ branches, stats, onRefresh, onCreate, onDelete }: Branche
       )}
 
       {/* Toolbar */}
-      <div className="k8s-toolbar">
+      <div className="toolbar">
         <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
           + New Branch
         </button>
@@ -421,13 +421,13 @@ function BranchesTab({ branches, stats, onRefresh, onCreate, onDelete }: Branche
 // ── SnapshotsTab ─────────────────────────────────────────────────────────────
 
 function SnapshotsTab() {
-  const [snapshots, setSnapshots] = useState<K8sSnapshot[] | null>(null)
+  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null)
   const [notConfigured, setNotConfigured] = useState(false)
   const [taking, setTaking] = useState(false)
   const [err, setErr] = useState('')
 
   const load = useCallback(() => {
-    k8sApi.snapshots.list()
+    api.snapshots.list()
       .then(snaps => { setSnapshots(snaps); setNotConfigured(false) })
       .catch(e => {
         if (String(e).includes('501')) setNotConfigured(true)
@@ -441,7 +441,7 @@ function SnapshotsTab() {
     setTaking(true)
     setErr('')
     try {
-      await k8sApi.snapshots.take()
+      await api.snapshots.take()
       load()
     } catch (ex) {
       setErr(String(ex))
@@ -462,7 +462,7 @@ function SnapshotsTab() {
   return (
     <>
       {err && <div className="error-banner">{err}</div>}
-      <div className="k8s-toolbar">
+      <div className="toolbar">
         <button className="btn btn-primary" onClick={handleTake} disabled={taking}>
           {taking ? 'Taking...' : 'Take Snapshot'}
         </button>
@@ -500,14 +500,14 @@ function SnapshotsTab() {
   )
 }
 
-// ── K8sApp ────────────────────────────────────────────────────────────────────
+// ── App ───────────────────────────────────────────────────────────────────────
 
 type Tab = 'branches' | 'snapshots'
 
-export default function K8sApp() {
+export default function App() {
   const [tab, setTab] = useState<Tab>('branches')
-  const [branches, setBranches] = useState<K8sBranch[]>([])
-  const [stats, setStats] = useState<K8sStats | null>(null)
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [err, setErr] = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -515,8 +515,8 @@ export default function K8sApp() {
   const loadBranches = useCallback(async () => {
     try {
       const [bs, st] = await Promise.all([
-        k8sApi.branches.list(),
-        k8sApi.stats.get(),
+        api.branches.list(),
+        api.stats.get(),
       ])
       setBranches(bs)
       setStats(st)
@@ -542,20 +542,20 @@ export default function K8sApp() {
   }, [branches, loadBranches])
 
   const handleCreate = async (name: string, snapshotRef: string, ttlHours: number) => {
-    await k8sApi.branches.create({ name, snapshot_ref: snapshotRef || undefined, ttl_hours: ttlHours || undefined })
+    await api.branches.create({ name, snapshot_ref: snapshotRef || undefined, ttl_hours: ttlHours || undefined })
     await loadBranches()
   }
 
   const handleDelete = async (name: string) => {
-    await k8sApi.branches.delete(name)
+    await api.branches.delete(name)
     await loadBranches()
   }
 
   return (
-    <div className="k8s-layout">
-      <header className="k8s-header">
+    <div className="layout">
+      <header className="header">
         <h1>BranchDB Admin</h1>
-        <nav className="k8s-nav">
+        <nav className="nav">
           <button className={tab === 'branches' ? 'active' : ''} onClick={() => setTab('branches')}>
             Branches
           </button>
@@ -563,13 +563,13 @@ export default function K8sApp() {
             Snapshots
           </button>
         </nav>
-        <div className="k8s-header-right">
+        <div className="header-right">
           <div className="refresh-dot" />
           {lastUpdated && <span>Updated {relativeTime(lastUpdated.toISOString())}</span>}
         </div>
       </header>
 
-      <main className="k8s-main">
+      <main className="main">
         {err && <div className="error-banner">{err}</div>}
 
         {tab === 'branches' && (

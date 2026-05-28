@@ -156,11 +156,22 @@ else
 fi
 
 # ── 6. イメージビルド (operator + API サーバー) ──────────────────────────────
+# E2E 用 Dockerfile は FROM scratch を使用するためインターネット不要。
+# bin/operator-linux と bin/branchdb-linux は make build-linux でホスト側（Mac）で
+# クロスコンパイル済みである必要がある（GOOS=linux GOARCH=amd64）。
 step "6/6 イメージビルド (nerdctl -> k3s containerd)"
 cd "$REPO_DIR"
-$NERDCTL build -f Dockerfile.operator -t branchdb-operator:e2e .
+if [[ ! -f "bin/operator-linux" ]]; then
+  log "ERROR: bin/operator-linux が存在しません。ホスト側で make build-linux を実行してください。" >&2
+  exit 1
+fi
+if [[ ! -f "bin/branchdb-linux" ]]; then
+  log "ERROR: bin/branchdb-linux が存在しません。ホスト側で make build-linux を実行してください。" >&2
+  exit 1
+fi
+$NERDCTL build -f Dockerfile.operator.e2e -t branchdb-operator:e2e .
 log "イメージ branchdb-operator:e2e をビルドしました"
-$NERDCTL build -f Dockerfile.branchdb -t branchdb:e2e .
+$NERDCTL build -f Dockerfile.branchdb.e2e -t branchdb:e2e .
 log "イメージ branchdb:e2e をビルドしました"
 
 # operator のデプロイは Helm でホスト側から行う (make e2e-k8s-up が helm install を実行)。

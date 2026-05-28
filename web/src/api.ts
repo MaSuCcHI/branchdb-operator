@@ -1,4 +1,4 @@
-import type { K8sBranch, K8sStats, PodInfo, BranchMetrics, K8sSnapshot } from './k8sTypes'
+import type { Branch, Stats, PodInfo, BranchMetrics, Snapshot } from './types'
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -13,21 +13,21 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export const k8sApi = {
+export const api = {
   branches: {
-    list: () => request<K8sBranch[]>('/branches'),
-    get: (name: string) => request<K8sBranch>(`/branches/${name}`),
+    list: () => request<Branch[]>('/branches'),
+    get: (name: string) => request<Branch>(`/branches/${name}`),
     create: (body: { name: string; snapshot_ref?: string; ttl_hours?: number }) =>
-      request<K8sBranch>('/branches', { method: 'POST', body: JSON.stringify(body) }),
+      request<Branch>('/branches', { method: 'POST', body: JSON.stringify(body) }),
     delete: (name: string) => request<void>(`/branches/${name}`, { method: 'DELETE' }),
     getPod: (name: string) => request<PodInfo>(`/branches/${name}/pod`),
     getMetrics: (name: string) => request<BranchMetrics>(`/branches/${name}/metrics`),
   },
   stats: {
-    get: () => request<K8sStats>('/stats'),
+    get: () => request<Stats>('/stats'),
   },
   snapshots: {
-    list: () => request<K8sSnapshot[]>('/snapshots'),
-    take: () => request<K8sSnapshot>('/snapshots', { method: 'POST' }),
+    list: () => request<Snapshot[]>('/snapshots'),
+    take: () => request<Snapshot>('/snapshots', { method: 'POST' }),
   },
 }

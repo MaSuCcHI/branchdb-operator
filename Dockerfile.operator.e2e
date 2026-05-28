@@ -1,0 +1,6 @@
+# E2E 用 Dockerfile: Mac 側でクロスコンパイル済みの Linux バイナリを使用。
+# インターネットアクセス不要（FROM scratch なのでベースイメージ pull なし）。
+# 使い方: make build-linux でバイナリをビルド後、provision.sh 内で nerdctl build。
+FROM scratch
+COPY bin/operator-linux /operator
+ENTRYPOINT ["/operator"]

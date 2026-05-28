@@ -31,6 +31,15 @@ build:
 	$(GOBUILD) -o $(BIN_DIR)/operator    ./cmd/operator
 	$(GOBUILD) -o $(BIN_DIR)/zfsagent   ./cmd/zfsagent
 
+# Linux/amd64 クロスコンパイル（Colima E2E イメージビルド用）
+build-linux:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) -ldflags="-w -s" \
+	  -o $(BIN_DIR)/operator-linux  ./cmd/operator
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) -ldflags="-w -s" \
+	  -o $(BIN_DIR)/branchdb-linux  ./cmd/branchdb
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) -ldflags="-w -s" \
+	  -o $(BIN_DIR)/zfsagent-linux  ./cmd/zfsagent
+
 fmt:
 	gofmt -w .
 
@@ -64,7 +73,7 @@ image-push: image-build
 #   make e2e-k8s-run   # E2E テスト実行（up の後に実行）
 #   make e2e-k8s-down  # VM 削除
 
-e2e-k8s-up: e2e-k8s-start e2e-k8s-provision e2e-k8s-deploy
+e2e-k8s-up: build-linux e2e-k8s-start e2e-k8s-provision e2e-k8s-deploy
 	@echo "E2E 環境の準備が完了しました"
 
 e2e-k8s-start:

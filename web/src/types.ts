@@ -1,6 +1,6 @@
 export type BranchPhase = 'Pending' | 'Creating' | 'Ready' | 'Error' | 'Deleting' | ''
 
-export interface K8sBranch {
+export interface Branch {
   name: string
   status: BranchPhase
   message?: string
@@ -15,7 +15,7 @@ export interface K8sBranch {
   expires_at?: string
 }
 
-export interface K8sStats {
+export interface Stats {
   total: number
   ready: number
   creating: number
@@ -36,7 +36,7 @@ export interface BranchMetrics {
   error?: string
 }
 
-export interface K8sSnapshot {
+export interface Snapshot {
   name: string
   created_at: string
 }
