@@ -1,0 +1,45 @@
+# このファイルは Operator が動的に生成する PV/PVC のテンプレートです。
+# 手動でブランチを作成する場合や Operator の動作を確認する際の参考として使用してください。
+#
+# Operator は DatabaseBranch CR が作成されると以下の手順で PV/PVC を作成します:
+#   1. ZFS+NFS サーバーに SSH して `zfs clone tank/mysql@<snapshot> tank/mysql/branches/<name>` を実行
+#   2. NFS エクスポートを追加 (`branchdb-nfs-export.sh add <name>`)
+#   3. 以下のような PV / PVC を作成し MySQL Pod を起動
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: branchdb-branch-<BRANCH_NAME>   # Operator が自動設定
+  labels:
+    branchdb.io/branch: <BRANCH_NAME>
+    branchdb.io/managed-by: branchdb-operator
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  mountOptions:
+    - hard
+    - nfsvers=4.1
+    - noatime
+  nfs:
+    server: "192.168.1.100"             # NFS_SERVER ConfigMap から注入
+    path: "/tank/mysql/branches/<BRANCH_NAME>"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: branchdb-branch-<BRANCH_NAME>
+  namespace: branchdb-system
+  labels:
+    branchdb.io/branch: <BRANCH_NAME>
+    branchdb.io/managed-by: branchdb-operator
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: branchdb-branch-<BRANCH_NAME>
+  storageClassName: ""

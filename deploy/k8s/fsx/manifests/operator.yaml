@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: branchdb-operator-config
+  namespace: branchdb-system
+data:
+  # Amazon FSx for OpenZFS 設定（FSx プロバイダーが使用）
+  FSX_REGION: "ap-northeast-1"
+  FSX_FILE_SYSTEM_ID: "fs-0123456789abcdef0"
+  FSX_MASTER_VOLUME_ID: "fsvol-0123456789abcdef0"
+  FSX_DNS_NAME: "fs-0123456789abcdef0.fsx.ap-northeast-1.amazonaws.com"
+
+  # 外部クライアントから MySQL に接続するためのホスト名
+  EXTERNAL_HOST: "branchdb.example.com"
+
+  # TCP プロキシが使用するポート範囲
+  PORT_RANGE_START: "33100"
+  PORT_RANGE_END: "33999"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: branchdb-operator
+  namespace: branchdb-system
+  labels:
+    app: branchdb-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: branchdb-operator
+  template:
+    metadata:
+      labels:
+        app: branchdb-operator
+    spec:
+      serviceAccountName: branchdb-operator
+      # FSx プロバイダーは AWS SDK を使用するため、IRSA / Pod Identity が必要。
+      # serviceAccountName に対して IAM ロールを付与してください。
+      containers:
+        - name: operator
+          image: ghcr.io/branchdb/branchdb-operator:latest
+          imagePullPolicy: Always
+          env:
+            - name: ZFSDB_EXTERNAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: EXTERNAL_HOST
+            - name: ZFSDB_PORT_MIN
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: PORT_RANGE_START
+            - name: ZFSDB_PORT_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: PORT_RANGE_END
+            # FSx 固有の設定（Pro 実装が読み取る）
+            - name: FSX_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: FSX_REGION
+            - name: FSX_FILE_SYSTEM_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: FSX_FILE_SYSTEM_ID
+            - name: FSX_MASTER_VOLUME_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: FSX_MASTER_VOLUME_ID
+            - name: FSX_DNS_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: FSX_DNS_NAME
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8081
+              name: metrics
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: branchdb-operator
+  namespace: branchdb-system
+  labels:
+    app: branchdb-operator
+spec:
+  selector:
+    app: branchdb-operator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 8081
+      targetPort: 8081

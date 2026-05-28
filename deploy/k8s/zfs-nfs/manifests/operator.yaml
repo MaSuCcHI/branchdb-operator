@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: branchdb-operator-config
+  namespace: branchdb-system
+data:
+  # 外部クライアントから MySQL に接続するためのホスト名（LoadBalancer / NodePort の外部 IP / DNS）
+  EXTERNAL_HOST: "branchdb.example.com"
+
+  # TCP プロキシが使用するポート範囲
+  PORT_RANGE_START: "33100"
+  PORT_RANGE_END: "33999"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: branchdb-operator
+  namespace: branchdb-system
+  labels:
+    app: branchdb-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: branchdb-operator
+  template:
+    metadata:
+      labels:
+        app: branchdb-operator
+    spec:
+      serviceAccountName: branchdb-operator
+      containers:
+        - name: operator
+          image: ghcr.io/branchdb/branchdb-operator:latest
+          imagePullPolicy: Always
+          env:
+            - name: ZFSDB_EXTERNAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: EXTERNAL_HOST
+            - name: ZFSDB_PORT_MIN
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: PORT_RANGE_START
+            - name: ZFSDB_PORT_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: branchdb-operator-config
+                  key: PORT_RANGE_END
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8081
+              name: metrics
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: branchdb-operator
+  namespace: branchdb-system
+  labels:
+    app: branchdb-operator
+spec:
+  selector:
+    app: branchdb-operator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 8081
+      targetPort: 8081

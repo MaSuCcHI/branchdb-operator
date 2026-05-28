@@ -1,0 +1,46 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "branchdb-operator.fullname" . }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+rules:
+  # DatabaseBranch CRD
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches/finalizers"]
+    verbs: ["update"]
+  # branch ごとの PV / PVC / Pod / Service
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims", "pods", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # リーダー選出
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # イベント
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "branchdb-operator.fullname" . }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "branchdb-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "branchdb-operator.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

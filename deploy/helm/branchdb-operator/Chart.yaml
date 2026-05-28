@@ -1,0 +1,19 @@
+apiVersion: v2
+name: branchdb-operator
+description: BranchDB Kubernetes Operator — ZFS/FSx スナップショットから MySQL ブランチを払い出す DatabaseBranch コントローラー
+type: application
+# chart 自体のバージョン
+version: 0.1.0
+# デプロイされる BranchDB Operator のバージョン (image tag の既定値)
+appVersion: "0.1.0"
+keywords:
+  - mysql
+  - zfs
+  - database
+  - branching
+  - operator
+home: https://branchdb.io
+sources:
+  - https://github.com/keisuke/zfs-db
+maintainers:
+  - name: BranchDB

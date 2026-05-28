@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: branchdb-operator
+  namespace: branchdb-system
+  annotations:
+    # IRSA (IAM Roles for Service Accounts) — FSx API アクセスに必要
+    # IAM ロールの ARN は fsx-iam-policy.json で定義したポリシーをアタッチして作成する
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/branchdb-operator-role"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: branchdb-operator
+rules:
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches/finalizers"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: branchdb-operator
+subjects:
+  - kind: ServiceAccount
+    name: branchdb-operator
+    namespace: branchdb-system
+roleRef:
+  kind: ClusterRole
+  name: branchdb-operator
+  apiGroup: rbac.authorization.k8s.io

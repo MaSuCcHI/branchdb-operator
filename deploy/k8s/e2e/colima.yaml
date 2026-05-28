@@ -1,0 +1,39 @@
+# K8s E2E 用 Colima プロファイル
+#
+# k3s (kubernetes) + containerd runtime を有効化する。
+# containerd を使うことで、nerdctl でビルドした operator イメージを
+# レジストリ無しで k3s に直接渡せる（namespace "k8s.io"）。
+#
+# 使い方:
+#   make e2e-k8s-up      # VM 起動 → プロビジョニング → マニフェスト適用
+#   make e2e-k8s-run     # E2E テスト実行
+#   make e2e-k8s-down    # VM 削除
+
+cpu: 4
+memory: 6
+disk: 60
+
+vmType: qemu
+arch: host
+
+runtime: containerd
+kubernetes:
+  enabled: true
+
+# リポジトリを含む home をマウント（プロビジョニング・バイナリ参照用）
+mounts:
+  - location: ~
+    writable: true
+
+# ZFS カーネルモジュールと NFS サーバーを初回起動時に用意する
+provision:
+  - mode: system
+    script: |-
+      #!/bin/bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y zfsutils-linux nfs-kernel-server
+      modprobe zfs
+      echo zfs > /etc/modules-load.d/zfs.conf
+      systemctl enable --now nfs-kernel-server

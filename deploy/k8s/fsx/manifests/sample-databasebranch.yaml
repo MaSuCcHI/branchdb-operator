@@ -1,0 +1,10 @@
+apiVersion: branchdb.io/v1alpha1
+kind: DatabaseBranch
+metadata:
+  name: feature-payment-v2
+  labels:
+    branchdb.io/team: backend
+    branchdb.io/owner: alice
+spec:
+  snapshotRef: auto-20240601   # `kubectl get databasebranches` で確認できるスナップショット名
+  ttlHours: 24

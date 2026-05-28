@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "FSxOpenZFSDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "fsx:DescribeFileSystems",
+        "fsx:DescribeVolumes",
+        "fsx:DescribeSnapshots"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "FSxOpenZFSClone",
+      "Effect": "Allow",
+      "Action": [
+        "fsx:CreateVolume",
+        "fsx:DeleteVolume",
+        "fsx:CreateSnapshot",
+        "fsx:DeleteSnapshot",
+        "fsx:TagResource",
+        "fsx:UntagResource",
+        "fsx:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:fsx:*:*:volume/*",
+        "arn:aws:fsx:*:*:snapshot/*"
+      ]
+    }
+  ]
+}

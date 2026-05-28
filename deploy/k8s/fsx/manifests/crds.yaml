@@ -1,0 +1,105 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: databasebranches.branchdb.io
+spec:
+  group: branchdb.io
+  names:
+    kind: DatabaseBranch
+    listKind: DatabaseBranchList
+    plural: databasebranches
+    singular: databasebranch
+    shortNames:
+      - dbb
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Port
+          type: integer
+          jsonPath: .status.port
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ["snapshotName"]
+              properties:
+                snapshotName:
+                  type: string
+                  description: "Source FSx snapshot name"
+                ttlHours:
+                  type: integer
+                  minimum: 1
+                  maximum: 720
+                  default: 24
+                mysqlVersion:
+                  type: string
+                  default: "8.0"
+                resources:
+                  type: object
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Provisioning", "Running", "Terminating", "Failed"]
+                port:
+                  type: integer
+                podName:
+                  type: string
+                pvcName:
+                  type: string
+                pvName:
+                  type: string
+                fsxVolumeId:
+                  type: string
+                  description: "FSx Volume ID of the cloned volume"
+                expiresAt:
+                  type: string
+                  format: date-time
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: ["type", "status"]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time

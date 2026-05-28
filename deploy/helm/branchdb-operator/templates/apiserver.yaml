@@ -1,0 +1,127 @@
+{{- if .Values.apiServer.enabled -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+rules:
+  # REST ハンドラの CR CRUD と watch ループの list/watch
+  - apiGroups: ["branchdb.io"]
+    resources: ["databasebranches"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "branchdb-operator.apiServer.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.apiServer.replicaCount }}
+  # API サーバーは branch ごとの TCP プロキシポートを bind する singleton。
+  # ローリング更新で 2 つ同時に動くと同じポートを取り合うため Recreate にする。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 8 }}
+      {{- with .Values.apiServer.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "branchdb-operator.apiServer.fullname" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.apiServer.image.repository }}:{{ .Values.apiServer.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.apiServer.image.pullPolicy }}
+          env:
+            - name: ZFSDB_BACKEND
+              value: "k8s"
+            - name: ZFSDB_LISTEN_ADDR
+              value: ":{{ .Values.apiServer.listenPort }}"
+            - name: ZFSDB_EXTERNAL_HOST
+              value: {{ .Values.externalHost | quote }}
+            - name: ZFSDB_NAMESPACE
+              value: {{ include "branchdb-operator.branchNamespace" . | quote }}
+          ports:
+            - name: rest
+              containerPort: {{ .Values.apiServer.listenPort }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: rest
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: rest
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.apiServer.resources | nindent 12 }}
+      {{- with .Values.apiServer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.apiServer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.apiServer.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if .Values.apiServer.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "branchdb-operator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.apiServer.service.type }}
+  selector:
+    {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: rest
+      port: {{ .Values.apiServer.listenPort }}
+      targetPort: rest
+{{- end }}
+{{- end }}

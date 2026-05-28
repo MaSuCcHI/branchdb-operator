@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: branchdb-mysql-master-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions:
+    - hard
+    - nfsvers=4.1
+    - noatime
+  nfs:
+    server: "192.168.1.100"   # ZFS+NFS サーバーの IP（operator.yaml の NFS_SERVER に合わせる）
+    path: "/tank/mysql"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: branchdb-mysql-master-pvc
+  namespace: branchdb-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: branchdb-mysql-master-pv
+  storageClassName: ""
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-master
+  namespace: branchdb-system
+  labels:
+    app: mysql-master
+spec:
+  serviceName: mysql-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-master
+  template:
+    metadata:
+      labels:
+        app: mysql-master
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          args:
+            - --innodb-flush-method=fsync
+            - --innodb-flush-log-at-trx-commit=2
+            - --innodb-buffer-pool-size=1G
+            - --bind-address=0.0.0.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: branchdb-mysql-master
+                  key: root-password
+          ports:
+            - containerPort: 3306
+              name: mysql
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: branchdb-mysql-master-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-master
+  namespace: branchdb-system
+spec:
+  selector:
+    app: mysql-master
+  ports:
+    - port: 3306
+      targetPort: 3306
+  clusterIP: None  # Headless service for StatefulSet
