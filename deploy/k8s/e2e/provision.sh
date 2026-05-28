@@ -160,8 +160,8 @@ step "6/6 イメージビルド (nerdctl -> k3s containerd)"
 cd "$REPO_DIR"
 $NERDCTL build -f Dockerfile.operator -t branchdb-operator:e2e .
 log "イメージ branchdb-operator:e2e をビルドしました"
-$NERDCTL build -f Dockerfile.zfs-db -t branchdb-zfs-db:e2e .
-log "イメージ branchdb-zfs-db:e2e をビルドしました"
+$NERDCTL build -f Dockerfile.branchdb -t branchdb:e2e .
+log "イメージ branchdb:e2e をビルドしました"
 
 # operator のデプロイは Helm でホスト側から行う (make e2e-k8s-up が helm install を実行)。
 # こうすることで E2E のたびに本番と同じ Helm インストール経路が検証される。
