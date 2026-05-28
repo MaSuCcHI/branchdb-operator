@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -90,7 +91,8 @@ func (p *Provider) CreateClone(ctx context.Context, snapshot, cloneName string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return domain.VolumeInfo{}, fmt.Errorf("zfsagent: CreateClone: unexpected status %d", resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		return domain.VolumeInfo{}, fmt.Errorf("zfsagent: CreateClone: unexpected status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
 	}
 
 	var result struct {
@@ -123,6 +125,10 @@ func (p *Provider) DeleteClone(ctx context.Context, cloneName string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		// クローンが存在しない場合は削除済みとみなして成功とする（冪等性）。
+		return nil
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("zfsagent: DeleteClone: unexpected status %d", resp.StatusCode)
 	}

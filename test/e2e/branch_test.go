@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestBranchLifecycle(t *testing.T) {
 			return false, nil // retry
 		}
 		status, _ := b["status"].(string)
-		if status == "error" {
+		if strings.EqualFold(status, "error") {
 			msg, _ := b["message"].(string)
 			return false, fmt.Errorf("branch error: %s", msg)
 		}
@@ -53,7 +54,7 @@ func TestBranchLifecycle(t *testing.T) {
 		}
 		nodePort = port
 		t.Logf("   status=%s port=%.0f", status, port)
-		return status == "ready", nil
+		return strings.EqualFold(status, "ready"), nil
 	})
 	if err != nil {
 		t.Fatalf("ブランチが Ready になりませんでした: %v", err)
@@ -127,7 +128,7 @@ func TestBranchLifecycle(t *testing.T) {
 		}
 		nodePort2 = port
 		status, _ := b["status"].(string)
-		return status == "ready", nil
+		return strings.EqualFold(status, "ready"), nil
 	})
 	if err != nil {
 		t.Fatalf("2つ目のブランチが Ready になりませんでした: %v", err)
@@ -139,9 +140,24 @@ func TestBranchLifecycle(t *testing.T) {
 	}
 
 	dsn2 := fmt.Sprintf("root@tcp(%s:%.0f)/", mysqlHost(), nodePort2)
-	db2, err := sql.Open("mysql", dsn2)
+	var db2 *sql.DB
+	err = waitFor(ctx, defaultTimeout, "branch2 mysql ready", func() (bool, error) {
+		var connErr error
+		db2, connErr = sql.Open("mysql", dsn2)
+		if connErr != nil {
+			return false, nil
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if pingErr := db2.PingContext(pingCtx); pingErr != nil {
+			db2.Close()
+			db2 = nil
+			return false, nil
+		}
+		return true, nil
+	})
 	if err != nil {
-		t.Fatalf("branch2 への接続失敗: %v", err)
+		t.Fatalf("branch2 の MySQL に接続できませんでした: %v", err)
 	}
 	defer db2.Close()
 

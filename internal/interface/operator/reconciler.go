@@ -56,15 +56,14 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Add finalizer if not present.
+	// Update を呼ぶとキャッシュが追いつくまで局所オブジェクトの ResourceVersion が
+	// 古い状態になる可能性があるため、ここで早期 return して次の Reconcile に Status 更新を委ねる。
 	if !controllerutil.ContainsFinalizer(branch, v1alpha1.FinalizerName) {
 		controllerutil.AddFinalizer(branch, v1alpha1.FinalizerName)
 		if err := r.Update(ctx, branch); err != nil {
 			return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
 		}
-		// Re-read to get updated resource version before status update.
-		if err := r.Get(ctx, req.NamespacedName, branch); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Skip if already in terminal / in-progress state.

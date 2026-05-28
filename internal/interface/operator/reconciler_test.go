@@ -105,11 +105,25 @@ func newReconciler(scheme *runtime.Scheme, objs []runtime.Object, volumeProvider
 	}
 }
 
+// reconcile は Result.Requeue=false かつエラーがなくなるまで、または最大 10 回まで
+// Reconcile を呼び出す。本番では controller-runtime が自動でリクエストを再キューする。
 func reconcile(t *testing.T, r *operator.DatabaseBranchReconciler, name string) (ctrl.Result, error) {
 	t.Helper()
-	return r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "default", Name: name},
-	})
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: name}}
+	var (
+		result ctrl.Result
+		err    error
+	)
+	for i := 0; i < 10; i++ {
+		result, err = r.Reconcile(context.Background(), req)
+		if err != nil {
+			return result, err
+		}
+		if !result.Requeue {
+			return result, nil
+		}
+	}
+	return result, err
 }
 
 func fetchBranch(t *testing.T, r *operator.DatabaseBranchReconciler, name string) *v1alpha1.DatabaseBranch {

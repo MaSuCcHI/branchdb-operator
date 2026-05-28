@@ -58,21 +58,32 @@ func (p *AgentProvider) CreateClone(ctx context.Context, snapshot, cloneName str
 	snapFull := fmt.Sprintf("%s@%s", p.dataset, snapshot)
 	target := p.clonePath(cloneName)
 
-	if err := run(ctx, "zfs", "clone", snapFull, target); err != nil {
-		return domain.VolumeInfo{}, fmt.Errorf("zfs clone: %w", err)
+	// 冪等性: クローンが既に存在する場合は再作成せずに成功とみなす。
+	// Reconcile の再実行や Operator 再起動で重複呼び出しが起きうるため必須。
+	out, cloneErr := exec.CommandContext(ctx, "zfs", "clone", snapFull, target).CombinedOutput()
+	if cloneErr != nil && !strings.Contains(string(out), "dataset already exists") {
+		return domain.VolumeInfo{}, fmt.Errorf("zfs clone %s -> %s: %w\n%s", snapFull, target, cloneErr, out)
 	}
 
 	// NFS エクスポートを有効化する。
 	// 親 dataset の sharenfs を継承して即座にマウント可能な状態にする。
 	// 失敗した場合はクローンを削除してロールバックし、設定方法を示すエラーを返す。
 	if err := run(ctx, "zfs", "share", target); err != nil {
-		_ = run(ctx, "zfs", "destroy", "-f", target)
-		return domain.VolumeInfo{}, fmt.Errorf(
-			"zfs share %s: %w\n"+
-				"ZFS サーバーで NFS 共有を有効化してください:\n"+
-				"  zfs set sharenfs=\"rw=@<k8s-pod-cidr>,no_root_squash\" %s",
-			target, err, p.dataset,
-		)
+		// 既に share 済みの場合は無視する（"filesystem 'X' is already shared"）。
+		// それ以外の失敗時のみロールバック。
+		out2, shareErr := exec.CommandContext(ctx, "zfs", "get", "-H", "-o", "value", "sharenfs", target).Output()
+		if shareErr != nil || strings.TrimSpace(string(out2)) == "off" {
+			// 新規クローンを作成した場合のみロールバック（既存クローンには触らない）
+			if cloneErr == nil {
+				_ = run(ctx, "zfs", "destroy", "-f", target)
+			}
+			return domain.VolumeInfo{}, fmt.Errorf(
+				"zfs share %s: %w\n"+
+					"ZFS サーバーで NFS 共有を有効化してください:\n"+
+					"  zfs set sharenfs=\"rw=@<k8s-pod-cidr>,no_root_squash\" %s",
+				target, err, p.dataset,
+			)
+		}
 	}
 
 	nfsServer, _ := localIP()

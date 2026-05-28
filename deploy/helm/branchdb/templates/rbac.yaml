@@ -16,9 +16,9 @@ rules:
   - apiGroups: ["branchdb.io"]
     resources: ["databasebranches/finalizers"]
     verbs: ["update"]
-  # branch ごとの PV / PVC / Pod / Service
+  # branch ごとの PV / PVC / Pod / Service / ConfigMap
   - apiGroups: [""]
-    resources: ["persistentvolumes", "persistentvolumeclaims", "pods", "services"]
+    resources: ["persistentvolumes", "persistentvolumeclaims", "pods", "services", "configmaps"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # リーダー選出
   - apiGroups: ["coordination.k8s.io"]
