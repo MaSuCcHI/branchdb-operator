@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/operator"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/operator"
 )
 
 // --- モック定義 ---

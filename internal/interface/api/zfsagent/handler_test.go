@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/api/zfsagent"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api/zfsagent"
 )
 
 // --- モック ---

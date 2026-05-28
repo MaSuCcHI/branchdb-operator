@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/api"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

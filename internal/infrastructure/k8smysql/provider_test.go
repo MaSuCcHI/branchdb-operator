@@ -11,8 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/k8smysql"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/k8smysql"
 )
 
 // nodePortAssigner は NodePort Service 作成時に NodePort を自動付与するフェイククライアント。

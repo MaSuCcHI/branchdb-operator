@@ -25,9 +25,9 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/zfsagent"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/api"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfsagent"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api"
 )
 
 func main() {

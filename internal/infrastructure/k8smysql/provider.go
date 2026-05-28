@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
 )
 
 // nfsMountOptions は NFS over MySQL に必要なマウントオプション。

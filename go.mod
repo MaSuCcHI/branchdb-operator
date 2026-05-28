@@ -1,4 +1,4 @@
-module github.com/keisuke/zfs-db-k8s
+module github.com/MaSuCcHI/branchdb-operator
 
 go 1.26.0
 

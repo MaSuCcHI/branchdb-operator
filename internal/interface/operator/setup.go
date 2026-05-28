@@ -3,7 +3,7 @@ package operator
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
 )
 
 // SetupWithManager registers the reconciler with the controller-runtime Manager.

@@ -10,8 +10,8 @@ keywords:
   - database
   - branching
   - operator
-home: https://github.com/MaSuCcHI/zfs-db-k8s
+home: https://github.com/MaSuCcHI/branchdb-operator
 sources:
-  - https://github.com/MaSuCcHI/zfs-db-k8s
+  - https://github.com/MaSuCcHI/branchdb-operator
 maintainers:
   - name: keisuke

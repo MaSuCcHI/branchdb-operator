@@ -51,8 +51,8 @@ zfs create tank/mysql
 ### バイナリをビルドする
 
 ```bash
-git clone https://github.com/MaSuCcHI/zfs-db-k8s.git
-cd zfs-db-k8s
+git clone https://github.com/MaSuCcHI/branchdb-operator.git
+cd branchdb-operator
 go build -o /usr/local/bin/zfsagent ./cmd/zfsagent
 ```
 

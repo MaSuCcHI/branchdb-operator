@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
 )
 
 // Provider は ZFS Agent への HTTP クライアント。VolumeProvider を実装する。

@@ -14,10 +14,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/k8smysql"
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/zfsagent"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/operator"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/k8smysql"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfsagent"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/operator"
 )
 
 var scheme = runtime.NewScheme()

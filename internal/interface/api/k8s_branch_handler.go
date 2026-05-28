@@ -10,8 +10,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-chi/chi/v5"
-	v1alpha1 "github.com/keisuke/zfs-db-k8s/api/v1alpha1"
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
+	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

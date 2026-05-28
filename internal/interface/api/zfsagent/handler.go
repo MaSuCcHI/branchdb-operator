@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
 )
 
 // ErrNotFound はリソースが見つからない場合に VolumeProvider が返すエラー。

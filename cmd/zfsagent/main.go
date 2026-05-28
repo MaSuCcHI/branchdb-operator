@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/zfs"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/api/zfsagent"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfs"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api/zfsagent"
 )
 
 func main() {

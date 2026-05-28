@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/keisuke/zfs-db-k8s/internal/interface/api"
+	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api"
 )
 
 func TestWSHub_Publishはクライアントにイベントをブロードキャストする(t *testing.T) {

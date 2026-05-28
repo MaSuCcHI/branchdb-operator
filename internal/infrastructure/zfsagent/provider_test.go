@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keisuke/zfs-db-k8s/internal/domain"
-	"github.com/keisuke/zfs-db-k8s/internal/infrastructure/zfsagent"
+	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfsagent"
 )
 
 // errTransport は常にエラーを返す http.RoundTripper。
