@@ -33,30 +33,30 @@ git push origin feature/payment-v2
 - Kubernetes cluster (k3s, EKS, GKE, …)
 - ZFS server with [ZFS Agent](#zfs-agent) **or** AWS FSx for OpenZFS
 
-### 1. Install CRD
+### 1. Install with Helm
+
+CRD, Operator, and API server are all installed with a single command:
 
 ```bash
-kubectl apply -f deploy/k8s/crd/
-```
-
-### 2. Deploy Operator
-
-```bash
-helm upgrade --install branchdb-operator deploy/helm/branchdb-operator \
+helm upgrade --install branchdb deploy/helm/branchdb \
   --namespace branchdb-system --create-namespace \
-  --set operator.zfsAgentURL=http://<zfs-server>:9090 \
-  --set operator.zfsAgentToken=<token> \
-  --set operator.externalHost=<node-ip-or-lb>
+  --set installCRDs=true \
+  --set zfsAgent.url=http://<zfs-server>:9090 \
+  --set zfsAgent.token=<token> \
+  --set externalHost=<node-ip-or-lb>
 ```
 
-### 3. Deploy API Server
+To expose the API server externally (skip for in-cluster Ingress setups):
 
 ```bash
-kubectl apply -f deploy/k8s/api/
-# Set ZFSDB_EXTERNAL_HOST, ZFSDB_ZFSAGENT_URL, ZFSDB_ZFSAGENT_TOKEN in the Deployment env
+# LoadBalancer (cloud)
+--set apiServer.service.type=LoadBalancer
+
+# NodePort (bare-metal / local)
+--set apiServer.service.type=NodePort
 ```
 
-### 4. Create a branch
+### 2. Create a branch
 
 ```bash
 curl -X POST http://<api-server>:8080/branches \

@@ -33,30 +33,30 @@ git push origin feature/payment-v2
 - Kubernetes クラスター（k3s / EKS / GKE など）
 - ZFS サーバー（[ZFS Agent](#zfs-agent) 経由）**または** AWS FSx for OpenZFS
 
-### 1. CRD のインストール
+### 1. Helm でインストール
+
+CRD・Operator・API サーバーの3つを **1コマンド** でインストールできます:
 
 ```bash
-kubectl apply -f deploy/k8s/crd/
-```
-
-### 2. Operator のデプロイ
-
-```bash
-helm upgrade --install branchdb-operator deploy/helm/branchdb-operator \
+helm upgrade --install branchdb deploy/helm/branchdb \
   --namespace branchdb-system --create-namespace \
-  --set operator.zfsAgentURL=http://<zfs-server>:9090 \
-  --set operator.zfsAgentToken=<token> \
-  --set operator.externalHost=<node-ip-or-lb>
+  --set installCRDs=true \
+  --set zfsAgent.url=http://<zfs-server>:9090 \
+  --set zfsAgent.token=<token> \
+  --set externalHost=<node-ip-or-lb>
 ```
 
-### 3. API サーバーのデプロイ
+API サーバーを外部公開する場合（クラスター内で Ingress を使う場合は不要）:
 
 ```bash
-kubectl apply -f deploy/k8s/api/
-# Deployment の env に ZFSDB_EXTERNAL_HOST / ZFSDB_ZFSAGENT_URL / ZFSDB_ZFSAGENT_TOKEN を設定
+# クラウド環境（LoadBalancer）
+--set apiServer.service.type=LoadBalancer
+
+# オンプレミス / ローカル（NodePort）
+--set apiServer.service.type=NodePort
 ```
 
-### 4. ブランチを作成する
+### 2. ブランチを作成する
 
 ```bash
 curl -X POST http://<api-server>:8080/branches \
