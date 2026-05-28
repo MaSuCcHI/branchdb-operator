@@ -48,12 +48,33 @@ func (p *AgentProvider) ListSnapshots(ctx context.Context) ([]domain.SnapshotInf
 }
 
 // CreateClone は指定スナップショットからクローンを作成し、接続情報を返す。
+//
+// クローン作成後に必ず `zfs share <target>` を呼び出し、NFS エクスポートを確立する。
+// 親 dataset に sharenfs プロパティが設定されていない場合は share が失敗するため、
+// ZFS サーバー側で以下のように設定しておく必要がある:
+//
+//	zfs set sharenfs="rw=@<k8s-cidr>,no_root_squash" <pool>/<dataset>
 func (p *AgentProvider) CreateClone(ctx context.Context, snapshot, cloneName string) (domain.VolumeInfo, error) {
 	snapFull := fmt.Sprintf("%s@%s", p.dataset, snapshot)
 	target := p.clonePath(cloneName)
+
 	if err := run(ctx, "zfs", "clone", snapFull, target); err != nil {
-		return domain.VolumeInfo{}, err
+		return domain.VolumeInfo{}, fmt.Errorf("zfs clone: %w", err)
 	}
+
+	// NFS エクスポートを有効化する。
+	// 親 dataset の sharenfs を継承して即座にマウント可能な状態にする。
+	// 失敗した場合はクローンを削除してロールバックし、設定方法を示すエラーを返す。
+	if err := run(ctx, "zfs", "share", target); err != nil {
+		_ = run(ctx, "zfs", "destroy", "-f", target)
+		return domain.VolumeInfo{}, fmt.Errorf(
+			"zfs share %s: %w\n"+
+				"ZFS サーバーで NFS 共有を有効化してください:\n"+
+				"  zfs set sharenfs=\"rw=@<k8s-pod-cidr>,no_root_squash\" %s",
+			target, err, p.dataset,
+		)
+	}
+
 	nfsServer, _ := localIP()
 	if nfsServer == "" {
 		nfsServer = "127.0.0.1"
