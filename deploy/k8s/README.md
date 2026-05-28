@@ -30,7 +30,7 @@ helm upgrade --install branchdb deploy/helm/branchdb \
   --set externalHost=<node-ip-or-lb>
 ```
 
-詳細は [Helm チャートリファレンス](../../docs/deploy/helm.md) を参照してください。
+詳細は [Helm チャートリファレンス](../../docs/02_deploy/helm.md) を参照してください。
 
 ---
 
@@ -77,8 +77,8 @@ jobs:
 
 | ガイド | 内容 |
 |---|---|
-| [クイックスタート](../../docs/getting-started/quickstart.md) | 5分インストール手順 |
-| [ZFS サーバーセットアップ](../../docs/getting-started/zfs-server-setup.md) | ZFS サーバーの準備 |
-| [Helm チャートリファレンス](../../docs/deploy/helm.md) | 全 values パラメータ |
-| [Ingress での外部公開](../../docs/deploy/ingress.md) | HTTPS 公開手順 |
-| [トラブルシューティング](../../docs/operations/troubleshooting.md) | よくある問題と解決策 |
+| [クイックスタート](../../docs/01_getting-started/quickstart.md) | 5分インストール手順 |
+| [ZFS サーバーセットアップ](../../docs/01_getting-started/zfs-server-setup.md) | ZFS サーバーの準備 |
+| [Helm チャートリファレンス](../../docs/02_deploy/helm.md) | 全 values パラメータ |
+| [Ingress での外部公開](../../docs/02_deploy/ingress.md) | HTTPS 公開手順 |
+| [トラブルシューティング](../../docs/05_operations/troubleshooting.md) | よくある問題と解決策 |

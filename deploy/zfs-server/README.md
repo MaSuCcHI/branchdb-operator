@@ -85,7 +85,7 @@ sudo ansible-playbook -i inventory.ini playbook.yml -e @vars.yml --check
 ## 手動インストール
 
 `setup.sh` を使わずに手動でインストールする場合は、
-[ZFS サーバーセットアップガイド](../../docs/getting-started/zfs-server-setup.md) の手順を参照してください。
+[ZFS サーバーセットアップガイド](../../docs/01_getting-started/zfs-server-setup.md) の手順を参照してください。
 
 systemd ユニットファイルのみ手動で配置する場合：
 
