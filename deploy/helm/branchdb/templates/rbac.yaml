@@ -2,9 +2,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "branchdb-operator.fullname" . }}
+  name: {{ include "branchdb.fullname" . }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 rules:
   # DatabaseBranch CRD
   - apiGroups: ["branchdb.io"]
@@ -32,15 +32,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "branchdb-operator.fullname" . }}
+  name: {{ include "branchdb.fullname" . }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "branchdb-operator.serviceAccountName" . }}
+    name: {{ include "branchdb.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole
-  name: {{ include "branchdb-operator.fullname" . }}
+  name: {{ include "branchdb.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
 {{- end }}

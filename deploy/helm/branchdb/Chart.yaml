@@ -1,0 +1,17 @@
+apiVersion: v2
+name: branchdb
+description: BranchDB — Kubernetes上でPRごとにMySQL DBブランチをZFSクローンから払い出すOperator+APIサーバー
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+keywords:
+  - mysql
+  - zfs
+  - database
+  - branching
+  - operator
+home: https://github.com/MaSuCcHI/zfs-db-k8s
+sources:
+  - https://github.com/MaSuCcHI/zfs-db-k8s
+maintainers:
+  - name: keisuke

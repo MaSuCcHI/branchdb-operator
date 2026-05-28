@@ -1,0 +1,62 @@
+BranchDB "{{ .Release.Name }}" をインストールしました。
+
+  namespace        : {{ .Release.Namespace }}
+  branch namespace : {{ include "branchdb.branchNamespace" . }}
+  operator image   : {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+  ZFS Agent URL    : {{ .Values.zfsAgent.url | default "(未設定)" }}
+  CRD インストール : {{ .Values.installCRDs }}
+
+Operator の状態確認:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "branchdb.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "branchdb.fullname" . }} -f
+
+{{- if .Values.apiServer.enabled }}
+
+API サーバーのアクセス方法 (service.type: {{ .Values.apiServer.service.type }}):
+{{- if eq .Values.apiServer.service.type "LoadBalancer" }}
+
+  export API_URL=http://$(kubectl -n {{ .Release.Namespace }} get svc {{ include "branchdb.apiServer.fullname" . }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):{{ .Values.apiServer.listenPort }}
+{{- else if eq .Values.apiServer.service.type "NodePort" }}
+
+  export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+  export NODE_PORT=$(kubectl -n {{ .Release.Namespace }} get svc {{ include "branchdb.apiServer.fullname" . }} -o jsonpath='{.spec.ports[0].nodePort}')
+  export API_URL=http://$NODE_IP:$NODE_PORT
+{{- else }}
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "branchdb.apiServer.fullname" . }} 8080:{{ .Values.apiServer.listenPort }} &
+  export API_URL=http://localhost:8080
+{{- end }}
+
+  curl $API_URL/health
+  curl -X POST $API_URL/branches -H 'Content-Type: application/json' \
+    -d '{"name":"feature-x","snapshot_ref":"<snapshot>","ttl_hours":24}'
+  open $API_URL/   # Web コンソール
+{{- end }}
+
+{{- if not .Values.zfsAgent.url }}
+
+[警告] zfsAgent.url が未設定です。
+        --set zfsAgent.url=http://<zfs-agent>:9090 を指定してください。
+{{- end }}
+{{- if and (not .Values.zfsAgent.token) (not .Values.zfsAgent.existingSecret) }}
+
+[警告] zfsAgent.token / zfsAgent.existingSecret が未設定です。
+        --set zfsAgent.token=<token> を指定してください。
+{{- end }}
+{{- if not .Values.installCRDs }}
+
+[情報] installCRDs=false: CRD は管理対象外です。
+        初回インストール時は --set installCRDs=true を付けてください。
+{{- end }}
+
+DatabaseBranch を kubectl で直接作成することもできます:
+  kubectl apply -f - <<'EOF'
+  apiVersion: branchdb.io/v1alpha1
+  kind: DatabaseBranch
+  metadata:
+    name: feature-x
+  spec:
+    snapshotRef: <スナップショット名>
+    ttlHours: 24
+  EOF
+  kubectl get databasebranches

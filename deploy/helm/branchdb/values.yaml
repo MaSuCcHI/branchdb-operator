@@ -1,0 +1,112 @@
+# BranchDB Helm values
+
+# ── CRD ───────────────────────────────────────────────────────────────────────
+# true: helm install/upgrade 時に DatabaseBranch CRD を作成/更新する（推奨）。
+# false: 既に CRD をインストール済みの場合、または手動管理する場合。
+installCRDs: true
+
+# ── Operator ──────────────────────────────────────────────────────────────────
+replicaCount: 1
+
+image:
+  repository: ghcr.io/masucci/branchdb-operator
+  tag: ""   # 省略時は Chart.appVersion を使用
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ── BranchDB 共通設定 ──────────────────────────────────────────────────────────
+
+# 外部クライアントが branch MySQL に接続するためのホスト名（NodePort の外部 IP / DNS）。
+externalHost: ""
+
+# branch MySQL の Pod/PVC/Service を作成する namespace。
+# 空の場合は Release の namespace を使用する。
+branchNamespace: ""
+
+# branch MySQL に使用するコンテナイメージ。
+mysqlImage: "mysql:8.0"
+
+# ── ZFS Agent 接続 ────────────────────────────────────────────────────────────
+# Operator / API サーバーの両方が ZFS Agent に接続してクローン・スナップショットを操作する。
+zfsAgent:
+  # ZFS Agent のベース URL（必須）。例: http://zfs-server.zfs.svc.cluster.local:9090
+  url: ""
+  # Bearer トークン。existingSecret 未指定時にこの値で Secret を作成する。
+  token: ""
+  # 既存 Secret からトークンを参照する場合に指定（key: zfsagent-token）。
+  existingSecret: ""
+
+# ── リーダー選出 ──────────────────────────────────────────────────────────────
+leaderElection:
+  enabled: true
+
+# ── サービスアカウント / RBAC ─────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+# ── Operator のポート ─────────────────────────────────────────────────────────
+ports:
+  metrics: 8080
+  health: 8081
+
+# Operator の metrics 用 Service（Prometheus スクレイプ用）。
+service:
+  enabled: true
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podAnnotations: {}
+podLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# 追加の環境変数（name/value 形式）。
+extraEnv: []
+
+# ── REST API サーバー ──────────────────────────────────────────────────────────
+# REST API + Web コンソール（SPA）を提供する branchdb バイナリ。
+# DatabaseBranch CR の CRUD を HTTP API 経由で操作できる。
+apiServer:
+  enabled: true
+  image:
+    repository: ghcr.io/masucci/branchdb
+    tag: ""   # 省略時は Chart.appVersion を使用
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  listenPort: 8080
+  service:
+    enabled: true
+    # ClusterIP: クラスター内部のみ（Ingress経由で外部公開する場合）
+    # LoadBalancer: クラウドのLBで直接外部公開
+    # NodePort: ノードのIPで外部公開（nodePort を指定しない場合は自動割当）
+    type: ClusterIP
+    nodePort: ""   # type: NodePort のときのみ有効（空=自動割当）
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

@@ -2,17 +2,17 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 rules:
   # REST ハンドラの CR CRUD と watch ループの list/watch
   - apiGroups: ["branchdb.io"]
@@ -22,44 +22,42 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "branchdb-operator.apiServer.fullname" . }}
+    name: {{ include "branchdb.apiServer.fullname" . }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.apiServer.replicaCount }}
-  # API サーバーは branch ごとの TCP プロキシポートを bind する singleton。
-  # ローリング更新で 2 つ同時に動くと同じポートを取り合うため Recreate にする。
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels:
-      {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 6 }}
+      {{- include "branchdb.apiServer.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 8 }}
+        {{- include "branchdb.apiServer.selectorLabels" . | nindent 8 }}
       {{- with .Values.apiServer.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ include "branchdb-operator.apiServer.fullname" . }}
+      serviceAccountName: {{ include "branchdb.apiServer.fullname" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -69,14 +67,21 @@ spec:
           image: "{{ .Values.apiServer.image.repository }}:{{ .Values.apiServer.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.apiServer.image.pullPolicy }}
           env:
-            - name: ZFSDB_BACKEND
-              value: "k8s"
             - name: ZFSDB_LISTEN_ADDR
               value: ":{{ .Values.apiServer.listenPort }}"
             - name: ZFSDB_EXTERNAL_HOST
               value: {{ .Values.externalHost | quote }}
             - name: ZFSDB_NAMESPACE
-              value: {{ include "branchdb-operator.branchNamespace" . | quote }}
+              value: {{ include "branchdb.branchNamespace" . | quote }}
+            - name: ZFSDB_ZFSAGENT_URL
+              value: {{ .Values.zfsAgent.url | quote }}
+            {{- if or .Values.zfsAgent.token .Values.zfsAgent.existingSecret }}
+            - name: ZFSDB_ZFSAGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "branchdb.secretName" . }}
+                  key: zfsagent-token
+            {{- end }}
           ports:
             - name: rest
               containerPort: {{ .Values.apiServer.listenPort }}
@@ -111,17 +116,20 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "branchdb-operator.apiServer.fullname" . }}
+  name: {{ include "branchdb.apiServer.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.apiServer.service.type }}
   selector:
-    {{- include "branchdb-operator.apiServer.selectorLabels" . | nindent 4 }}
+    {{- include "branchdb.apiServer.selectorLabels" . | nindent 4 }}
   ports:
     - name: rest
       port: {{ .Values.apiServer.listenPort }}
       targetPort: rest
+      {{- if and (eq .Values.apiServer.service.type "NodePort") .Values.apiServer.service.nodePort }}
+      nodePort: {{ .Values.apiServer.service.nodePort }}
+      {{- end }}
 {{- end }}
 {{- end }}

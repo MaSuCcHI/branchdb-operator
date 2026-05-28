@@ -2,14 +2,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "branchdb-operator.fullname" . }}-metrics
+  name: {{ include "branchdb.fullname" . }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    {{- include "branchdb-operator.selectorLabels" . | nindent 4 }}
+    {{- include "branchdb.selectorLabels" . | nindent 4 }}
   ports:
     - name: metrics
       port: {{ .Values.ports.metrics }}

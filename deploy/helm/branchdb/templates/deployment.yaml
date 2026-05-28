@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "branchdb-operator.fullname" . }}
+  name: {{ include "branchdb.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "branchdb-operator.labels" . | nindent 4 }}
+    {{- include "branchdb.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "branchdb-operator.selectorLabels" . | nindent 6 }}
+      {{- include "branchdb.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "branchdb-operator.selectorLabels" . | nindent 8 }}
+        {{- include "branchdb.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -22,7 +22,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ include "branchdb-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "branchdb.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -39,7 +39,7 @@ spec:
             - name: ZFSDB_EXTERNAL_HOST
               value: {{ .Values.externalHost | quote }}
             - name: ZFSDB_NAMESPACE
-              value: {{ include "branchdb-operator.branchNamespace" . | quote }}
+              value: {{ include "branchdb.branchNamespace" . | quote }}
             - name: ZFSDB_MYSQL_IMAGE
               value: {{ .Values.mysqlImage | quote }}
             - name: ZFSAGENT_URL
@@ -48,7 +48,7 @@ spec:
             - name: ZFSAGENT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "branchdb-operator.secretName" . }}
+                  name: {{ include "branchdb.secretName" . }}
                   key: zfsagent-token
             {{- end }}
             {{- with .Values.extraEnv }}
