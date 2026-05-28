@@ -1,0 +1,24 @@
+# ZFS サーバーセットアップ変数
+# このファイルを vars.yml にコピーして編集してください。
+#
+#   cp vars.yml.example vars.yml
+#   vi vars.yml
+
+# ── ZFS 設定 ───────────────────────────────────────────────────────────────────
+zfs_pool: tank                    # ZFS プール名
+zfs_dataset: mysql                # ZFS dataset 名（プール名は含めない）
+zfs_device: /dev/sdb              # ZFS プールに使うディスク（プールが既に存在する場合は無視される）
+
+# ── NFS 設定 ───────────────────────────────────────────────────────────────────
+# K8s Pod CIDR を指定してください（kubectl cluster-info dump | grep podCIDR で確認）
+# 例: EKS デフォルト 192.168.0.0/16 / k3s デフォルト 10.42.0.0/16
+k8s_pod_cidr: 10.42.0.0/16
+
+# ── ZFS Agent 設定 ─────────────────────────────────────────────────────────────
+zfsagent_addr: ":9090"            # HTTP リッスンアドレス
+zfsagent_token: "changeme"        # ★ 必ず変更してください（openssl rand -hex 32）
+zfsagent_install_dir: /usr/local/bin
+
+# ── リポジトリ設定 ─────────────────────────────────────────────────────────────
+repo_url: https://github.com/MaSuCcHI/branchdb-operator.git
+repo_version: main                # ブランチ名またはタグ

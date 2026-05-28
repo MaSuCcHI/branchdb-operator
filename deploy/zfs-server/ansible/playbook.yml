@@ -1,0 +1,151 @@
+---
+# BranchDB ZFS サーバーセットアッププレイブック
+#
+# ZFS サーバー自身で実行します:
+#   sudo ansible-playbook -i inventory.ini playbook.yml -e @vars.yml
+#
+# 変数ファイルの準備:
+#   cp vars.yml.example vars.yml && vi vars.yml
+#
+- name: BranchDB ZFS サーバーセットアップ
+  hosts: zfs_server
+  become: true
+
+  vars_files:
+    - vars.yml
+
+  vars:
+    zfs_master_dataset: "{{ zfs_pool }}/{{ zfs_dataset }}"
+    zfsagent_service_name: zfsagent
+    go_version: "1.23"
+
+  tasks:
+
+    # ── 1. 依存パッケージ ──────────────────────────────────────────────────────
+    - name: 依存パッケージをインストール
+      ansible.builtin.apt:
+        name:
+          - zfsutils-linux
+          - nfs-kernel-server
+          - git
+          - golang-go
+        state: present
+        update_cache: true
+
+    # ── 2. ZFS プール ──────────────────────────────────────────────────────────
+    - name: ZFS プールの存在確認
+      ansible.builtin.command: zpool list {{ zfs_pool }}
+      register: zpool_check
+      changed_when: false
+      failed_when: false
+
+    - name: ZFS プールを作成（存在しない場合のみ）
+      ansible.builtin.command: zpool create -f {{ zfs_pool }} {{ zfs_device }}
+      when: zpool_check.rc != 0
+
+    # ── 3. ZFS dataset ─────────────────────────────────────────────────────────
+    - name: ZFS dataset の存在確認
+      ansible.builtin.command: zfs list {{ zfs_master_dataset }}
+      register: zfs_dataset_check
+      changed_when: false
+      failed_when: false
+
+    - name: ZFS dataset を作成（存在しない場合のみ）
+      ansible.builtin.command: zfs create {{ zfs_master_dataset }}
+      when: zfs_dataset_check.rc != 0
+
+    # ── 4. NFS 共有（sharenfs プロパティ）─────────────────────────────────────
+    - name: sharenfs プロパティの現在値を取得
+      ansible.builtin.command: zfs get -H -o value sharenfs {{ zfs_master_dataset }}
+      register: sharenfs_current
+      changed_when: false
+
+    - name: sharenfs プロパティを設定（未設定の場合のみ）
+      ansible.builtin.command: >
+        zfs set sharenfs="rw=@{{ k8s_pod_cidr }},no_root_squash" {{ zfs_master_dataset }}
+      when: sharenfs_current.stdout in ['off', '-', '']
+      notify: nfs-server を再起動
+
+    # ── 5. NFS サーバー ────────────────────────────────────────────────────────
+    - name: nfs-server を有効化・起動
+      ansible.builtin.systemd:
+        name: nfs-server
+        enabled: true
+        state: started
+
+    # ── 6. ZFS Agent バイナリのビルド ──────────────────────────────────────────
+    - name: ビルド用一時ディレクトリを作成
+      ansible.builtin.tempfile:
+        state: directory
+      register: build_tmpdir
+
+    - name: リポジトリをクローン
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ build_tmpdir.path }}/repo"
+        version: "{{ repo_version }}"
+        depth: 1
+
+    - name: zfsagent バイナリをビルド
+      ansible.builtin.command:
+        cmd: go build -o {{ zfsagent_install_dir }}/zfsagent ./cmd/zfsagent
+        chdir: "{{ build_tmpdir.path }}/repo"
+      environment:
+        HOME: /root
+        GOPATH: /root/go
+
+    - name: ビルド用一時ディレクトリを削除
+      ansible.builtin.file:
+        path: "{{ build_tmpdir.path }}"
+        state: absent
+
+    # ── 7. systemd サービス ────────────────────────────────────────────────────
+    - name: zfsagent.service を配置
+      ansible.builtin.template:
+        src: templates/zfsagent.service.j2
+        dest: /etc/systemd/system/zfsagent.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: zfsagent を再起動
+
+    - name: systemd デーモンをリロード
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: zfsagent を有効化・起動
+      ansible.builtin.systemd:
+        name: "{{ zfsagent_service_name }}"
+        enabled: true
+        state: started
+
+    # ── 8. 完了メッセージ ──────────────────────────────────────────────────────
+    - name: サーバー IP を取得
+      ansible.builtin.command: hostname -I
+      register: server_ip_raw
+      changed_when: false
+
+    - name: セットアップ完了メッセージを表示
+      ansible.builtin.debug:
+        msg:
+          - "=== BranchDB ZFS サーバーセットアップ完了 ==="
+          - ""
+          - "Helm インストール時に以下を指定してください:"
+          - "  --set zfsAgent.url=http://{{ server_ip_raw.stdout.split()[0] }}:{{ zfsagent_addr | replace(':', '') }}"
+          - "  --set zfsAgent.token={{ zfsagent_token }}"
+          - "  --set externalHost=<K8s ノード IP または LB ホスト名>"
+          - ""
+          - "動作確認:"
+          - "  curl -H 'Authorization: Bearer {{ zfsagent_token }}' http://localhost:{{ zfsagent_addr | replace(':', '') }}/health"
+
+  # ── ハンドラー ────────────────────────────────────────────────────────────────
+  handlers:
+    - name: nfs-server を再起動
+      ansible.builtin.systemd:
+        name: nfs-server
+        state: restarted
+
+    - name: zfsagent を再起動
+      ansible.builtin.systemd:
+        name: "{{ zfsagent_service_name }}"
+        state: restarted

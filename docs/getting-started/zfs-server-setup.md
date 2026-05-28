@@ -27,6 +27,14 @@ ZFS Agent（`cmd/zfsagent`）が HTTP サーバーとして稼働し、Operator 
 
 > **NFS は必須です。** ZFS サーバーに `nfs-kernel-server` をインストールし、`sharenfs` プロパティを設定してください（手順は Step 1 を参照）。
 
+## セットアップ方法の選択
+
+| 方法 | コマンド |
+|---|---|
+| **Ansible プレイブック**（推奨）| [→ Ansible で構築する](#ansible-プレイブックで構築する) |
+| シェルスクリプト | `bash deploy/zfs-server/setup.sh` |
+| 手動（本ページの手順）| 以下の Step 1〜3 を順に実行 |
+
 ---
 
 ## 前提条件
@@ -250,3 +258,72 @@ systemctl start nfs-server
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl -H "Authorization: Bearer <token>" http://<zfs-server-ip>:9090/health
 ```
+
+---
+
+## Ansible プレイブックで構築する
+
+手動の Step 1〜3 の内容をすべて自動化した Ansible プレイブックです。  
+冪等なので何度実行しても安全です。ZFS サーバー自身に対して `ansible_connection=local` で実行します。
+
+### 事前準備
+
+```bash
+# ZFS サーバー上で Ansible をインストール
+apt install -y ansible
+
+# リポジトリをクローン
+git clone https://github.com/MaSuCcHI/branchdb-operator.git
+cd branchdb-operator/deploy/zfs-server/ansible
+
+# 変数ファイルを作成
+cp vars.yml.example vars.yml
+```
+
+`vars.yml` を編集して環境に合わせた値を設定します：
+
+```yaml
+# vars.yml（最低限変更が必要な項目）
+zfs_device: /dev/sdb         # ZFS プールに使うディスク
+k8s_pod_cidr: 10.42.0.0/16  # kubectl cluster-info dump | grep podCIDR で確認
+zfsagent_token: "$(openssl rand -hex 32)"  # ★ 必ず強いトークンに変更
+```
+
+### 実行
+
+```bash
+# ドライラン（変更内容の確認のみ、実際には変更しない）
+sudo ansible-playbook -i inventory.ini playbook.yml -e @vars.yml --check
+
+# 実行
+sudo ansible-playbook -i inventory.ini playbook.yml -e @vars.yml
+```
+
+実行完了後、以下のような出力が表示されます：
+
+```
+TASK [セットアップ完了メッセージを表示]
+ok: [localhost] => {
+  "msg": [
+    "=== BranchDB ZFS サーバーセットアップ完了 ===",
+    "",
+    "Helm インストール時に以下を指定してください:",
+    "  --set zfsAgent.url=http://10.0.0.1:9090",
+    "  --set zfsAgent.token=<token>",
+    "  --set externalHost=<K8s ノード IP または LB ホスト名>"
+  ]
+}
+```
+
+### Ansible が行う処理
+
+1. `zfsutils-linux`・`nfs-kernel-server`・`git`・`golang-go` をインストール
+2. ZFS プールが未作成なら `zpool create` を実行
+3. ZFS dataset が未作成なら `zfs create` を実行
+4. `sharenfs` プロパティが未設定なら `zfs set sharenfs=...` を設定
+5. `nfs-server` を有効化・起動
+6. リポジトリをクローンして `zfsagent` バイナリをビルド・配置
+7. systemd ユニットファイルを配置して `zfsagent` を有効化・起動
+
+> **注意:** `zfsagent_token` に `changeme` が設定されている場合、プレイブックは実行を継続しますが、
+> 本番環境では必ず `openssl rand -hex 32` で生成した強いトークンを使用してください。

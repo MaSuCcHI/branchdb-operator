@@ -1,0 +1,19 @@
+[Unit]
+Description=BranchDB ZFS Agent
+Documentation=https://github.com/MaSuCcHI/branchdb-operator/blob/main/docs/getting-started/zfs-server-setup.md
+After=network.target nfs-server.service
+Requires=nfs-server.service
+
+[Service]
+Type=simple
+User=root
+Environment=ZFSAGENT_ADDR={{ zfsagent_addr }}
+Environment=ZFSAGENT_TOKEN={{ zfsagent_token }}
+Environment=ZFSAGENT_POOL={{ zfs_pool }}
+Environment=ZFSAGENT_DATASET={{ zfs_dataset }}
+ExecStart={{ zfsagent_install_dir }}/zfsagent
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
