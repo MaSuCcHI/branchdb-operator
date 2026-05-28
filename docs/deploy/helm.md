@@ -56,9 +56,11 @@ helm upgrade --install branchdb deploy/helm/branchdb \
 
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
-| `externalHost` | `""` | NodePort 経由でブランチ MySQL に接続する外部ホスト名 / IP。Operator と API サーバーの両方で使用する。|
+| `externalHost` | `""` | NodePort 経由でブランチデータベースに接続する外部ホスト名 / IP。Operator と API サーバーの両方で使用する。|
 | `branchNamespace` | `""` | ブランチ用 Pod/PVC/Service を作成する namespace。空の場合は Release の namespace を使用。|
-| `mysqlImage` | `mysql:8.0` | ブランチ MySQL コンテナイメージ |
+| `databases.mysql.image` | `""` | MySQL イメージ上書き（空 = `mysql:8.0`）|
+| `databases.postgres.image` | `""` | PostgreSQL イメージ上書き（空 = `postgres:16`）|
+| `databases.redis.image` | `""` | Redis イメージ上書き（空 = `redis:7`）|
 
 ---
 

@@ -22,6 +22,8 @@ Content-Type: application/json
 | `name` | string | ✅ | ブランチ名（`[a-z0-9-]` のみ使用可）|
 | `snapshot_ref` | string | ✅ | ベーススナップショット名 |
 | `ttl_hours` | integer | | 有効期間（時間）。`0` または省略で無期限。|
+| `database_type` | string | | データベース種別。`mysql`（デフォルト）/ `postgres` / `redis`。|
+| `database_version` | string | | イメージタグ上書き。省略時は種別ごとのデフォルトを使用。|
 
 **レスポンス: 202 Accepted**
 

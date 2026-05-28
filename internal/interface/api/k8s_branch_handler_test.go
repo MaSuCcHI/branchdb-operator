@@ -496,7 +496,7 @@ func TestK8sGetPod_Podが存在するとき情報を返す(t *testing.T) {
 	scheme := newK8sTestSchemeWithCore()
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "branchdb-mysql-feat-pod",
+			Name:      "branchdb-db-feat-pod",
 			Namespace: "default",
 		},
 		Status: corev1.PodStatus{

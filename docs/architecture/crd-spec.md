@@ -21,6 +21,8 @@ kind: DatabaseBranch
 |---|---|---|---|
 | `snapshotRef` | string | ✅ | ベースとなるスナップショット名（ZFS Agent が管理するスナップショットの名前）|
 | `ttlHours` | integer | | ブランチの有効期間（時間）。`0` または省略で無期限。|
+| `databaseType` | string | | 起動するデータベース種別。`mysql`（デフォルト）/ `postgres` / `redis`。|
+| `databaseVersion` | string | | コンテナイメージのタグ上書き。省略時は Operator のデフォルト（`mysql:8.0`, `postgres:16`, `redis:7`）。|
 | `initSQL` | string | | ブランチ MySQL 起動後に実行する初期化 SQL（将来対応予定）|
 
 ---
@@ -51,7 +53,7 @@ kind: DatabaseBranch
 
 ## サンプルマニフェスト
 
-### 基本
+### MySQL（デフォルト）
 
 ```yaml
 apiVersion: branchdb.io/v1alpha1
@@ -61,6 +63,43 @@ metadata:
 spec:
   snapshotRef: snap-20260101
   ttlHours: 24
+  # databaseType: mysql  ← 省略でも mysql が使われる
+```
+
+### PostgreSQL
+
+```yaml
+apiVersion: branchdb.io/v1alpha1
+kind: DatabaseBranch
+metadata:
+  name: feature-pg-branch
+spec:
+  snapshotRef: snap-20260101
+  databaseType: postgres
+  databaseVersion: "16"   # 省略時は postgres:16
+  ttlHours: 24
+```
+
+### Redis
+
+```yaml
+apiVersion: branchdb.io/v1alpha1
+kind: DatabaseBranch
+metadata:
+  name: feature-redis-cache
+spec:
+  snapshotRef: snap-20260101
+  databaseType: redis
+  ttlHours: 8
+```
+
+### バージョン固定
+
+```yaml
+spec:
+  snapshotRef: snap-20260101
+  databaseType: mysql
+  databaseVersion: "8.4"   # mysql:8.4 を使用
 ```
 
 ### TTL なし（手動削除まで保持）

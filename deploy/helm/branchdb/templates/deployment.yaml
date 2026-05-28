@@ -41,7 +41,11 @@ spec:
             - name: ZFSDB_NAMESPACE
               value: {{ include "branchdb.branchNamespace" . | quote }}
             - name: ZFSDB_MYSQL_IMAGE
-              value: {{ .Values.mysqlImage | quote }}
+              value: {{ .Values.databases.mysql.image | quote }}
+            - name: ZFSDB_POSTGRES_IMAGE
+              value: {{ .Values.databases.postgres.image | quote }}
+            - name: ZFSDB_REDIS_IMAGE
+              value: {{ .Values.databases.redis.image | quote }}
             - name: ZFSAGENT_URL
               value: {{ .Values.zfsAgent.url | quote }}
             {{- if or .Values.zfsAgent.token .Values.zfsAgent.existingSecret }}

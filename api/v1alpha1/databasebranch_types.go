@@ -36,6 +36,17 @@ type DatabaseBranchSpec struct {
 	// InitSQL はブランチ作成後に実行する初期化 SQL を指定する。
 	// +optional
 	InitSQL string `json:"initSQL,omitempty"`
+
+	// DatabaseType は起動するデータベースの種類を指定する。
+	// 対応値: mysql（デフォルト）, postgres, redis
+	// +optional
+	// +kubebuilder:default=mysql
+	DatabaseType string `json:"databaseType,omitempty"`
+
+	// DatabaseVersion はコンテナイメージのタグを上書きする。
+	// 省略時は Operator のデフォルト（mysql:8.0, postgres:16, redis:7）を使用する。
+	// +optional
+	DatabaseVersion string `json:"databaseVersion,omitempty"`
 }
 
 // DatabaseBranchStatus は DatabaseBranch の観測された状態を定義する。

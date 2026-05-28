@@ -244,7 +244,7 @@ func (h *K8sBranchHandler) handleStats(w http.ResponseWriter, r *http.Request) {
 
 func (h *K8sBranchHandler) handleGetPod(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	podName := "branchdb-mysql-" + name
+	podName := "branchdb-db-" + name
 
 	var pod corev1.Pod
 	if err := h.k8sClient.Get(r.Context(), types.NamespacedName{Name: podName, Namespace: h.namespace}, &pod); err != nil {
@@ -279,6 +279,19 @@ func (h *K8sBranchHandler) handleGetMetrics(w http.ResponseWriter, r *http.Reque
 
 	if cr.Status.ClusterHost == "" {
 		writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: "cluster host not yet assigned"})
+		return
+	}
+
+	// MySQL 以外のデータベースは接続数メトリクスを現時点でサポートしない。
+	dbType := cr.Spec.DatabaseType
+	if dbType == "" {
+		dbType = "mysql"
+	}
+	if dbType != "mysql" {
+		writeJSON(w, http.StatusOK, BranchMetrics{
+			Available: false,
+			ErrorMsg:  fmt.Sprintf("metrics not yet supported for database type: %s", dbType),
+		})
 		return
 	}
 

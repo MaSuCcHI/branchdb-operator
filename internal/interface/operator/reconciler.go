@@ -20,10 +20,10 @@ import (
 // DatabaseBranchReconciler reconciles DatabaseBranch resources.
 type DatabaseBranchReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	VolumeProvider domain.VolumeProvider
-	MySQLProvider  domain.BranchMySQLProvider
-	ExternalHost   string
+	Scheme           *runtime.Scheme
+	VolumeProvider   domain.VolumeProvider
+	DatabaseProvider domain.BranchDatabaseProvider
+	ExternalHost     string
 }
 
 // requeueInterval is the period after which we recheck TTL expiry.
@@ -86,17 +86,17 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return r.setError(ctx, branch, fmt.Errorf("create clone: %w", err))
 	}
 
-	// Step 3: Start MySQL. NodePort は K8smysql.Provider が K8s に割り当てさせる。
-	mysqlInfo, err := r.MySQLProvider.Start(ctx, branch.Name, volumeInfo)
+	// Step 3: Start database. NodePort は Provider が K8s に割り当てさせる。
+	dbInfo, err := r.DatabaseProvider.Start(ctx, branch.Name, volumeInfo, branch.Spec.DatabaseType, branch.Spec.DatabaseVersion)
 	if err != nil {
-		return r.setError(ctx, branch, fmt.Errorf("start mysql: %w", err))
+		return r.setError(ctx, branch, fmt.Errorf("start database: %w", err))
 	}
 
 	// Step 4: Record all connection info and set TTL.
-	branch.Status.ClusterHost = mysqlInfo.Host
-	branch.Status.ClusterPort = mysqlInfo.Port
+	branch.Status.ClusterHost = dbInfo.Host
+	branch.Status.ClusterPort = dbInfo.Port
 	branch.Status.ExternalHost = r.ExternalHost
-	branch.Status.ExternalPort = mysqlInfo.ExternalPort
+	branch.Status.ExternalPort = dbInfo.ExternalPort
 
 	if branch.Spec.TTLHours > 0 {
 		expiresAt := metav1.NewTime(time.Now().Add(time.Duration(branch.Spec.TTLHours) * time.Hour))
@@ -125,9 +125,9 @@ func (r *DatabaseBranchReconciler) handleDeletion(ctx context.Context, branch *v
 		return ctrl.Result{}, fmt.Errorf("update status to Deleting: %w", err)
 	}
 
-	// Stop MySQL.
-	if err := r.MySQLProvider.Stop(ctx, branch.Name); err != nil {
-		return r.setError(ctx, branch, fmt.Errorf("stop mysql: %w", err))
+	// Stop database.
+	if err := r.DatabaseProvider.Stop(ctx, branch.Name); err != nil {
+		return r.setError(ctx, branch, fmt.Errorf("stop database: %w", err))
 	}
 
 	// Destroy volume clone.

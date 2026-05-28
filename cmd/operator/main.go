@@ -15,7 +15,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
-	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/k8smysql"
+	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/k8sdatabase"
 	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfsagent"
 	"github.com/MaSuCcHI/branchdb-operator/internal/interface/operator"
 )
@@ -47,9 +47,14 @@ func main() {
 	// Read configuration from environment variables.
 	externalHost := getEnv("ZFSDB_EXTERNAL_HOST", "")
 	namespace := getEnv("ZFSDB_NAMESPACE", "branchdb-system")
-	mysqlImage := getEnv("ZFSDB_MYSQL_IMAGE", "mysql:8.0")
 	zfsAgentURL := getEnv("ZFSAGENT_URL", "")
 	zfsAgentToken := getEnv("ZFSAGENT_TOKEN", "")
+	// Per-database image overrides（空文字列はデフォルトイメージを使用）
+	imageOverrides := map[string]string{
+		"mysql":    getEnv("ZFSDB_MYSQL_IMAGE", ""),
+		"postgres": getEnv("ZFSDB_POSTGRES_IMAGE", ""),
+		"redis":    getEnv("ZFSDB_REDIS_IMAGE", ""),
+	}
 
 	if externalHost == "" {
 		setupLog.Info("Warning: ZFSDB_EXTERNAL_HOST is not set; external connectivity will use empty host")
@@ -74,16 +79,16 @@ func main() {
 	}
 
 	// VolumeProvider: ZFS clone/snapshot operations are delegated to the ZFS Agent over HTTP.
-	// BranchMySQLProvider: per-branch MySQL is run as a Pod+PVC+Service in the cluster.
+	// DatabaseProvider: per-branch database runs as a Pod+PVC+Service in the cluster.
 	volumeProvider := zfsagent.NewProvider(zfsAgentURL, zfsAgentToken)
-	mysqlProvider := k8smysql.NewProvider(mgr.GetClient(), namespace, mysqlImage)
+	dbProvider := k8sdatabase.NewProvider(mgr.GetClient(), namespace, imageOverrides)
 
 	reconciler := &operator.DatabaseBranchReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ExternalHost:   externalHost,
-		VolumeProvider: volumeProvider,
-		MySQLProvider:  mysqlProvider,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ExternalHost:     externalHost,
+		VolumeProvider:   volumeProvider,
+		DatabaseProvider: dbProvider,
 	}
 
 	if err := reconciler.SetupWithManager(mgr); err != nil {

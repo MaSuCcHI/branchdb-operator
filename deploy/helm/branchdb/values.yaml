@@ -23,12 +23,20 @@ fullnameOverride: ""
 # 外部クライアントが branch MySQL に接続するためのホスト名（NodePort の外部 IP / DNS）。
 externalHost: ""
 
-# branch MySQL の Pod/PVC/Service を作成する namespace。
+# ブランチ用 Pod/PVC/Service を作成する namespace。
 # 空の場合は Release の namespace を使用する。
 branchNamespace: ""
 
-# branch MySQL に使用するコンテナイメージ。
-mysqlImage: "mysql:8.0"
+# ── データベースイメージ ──────────────────────────────────────────────────────
+# 各データベース種別のコンテナイメージ。
+# 空文字列の場合は Operator のデフォルト（mysql:8.0, postgres:16, redis:7）を使用する。
+databases:
+  mysql:
+    image: ""
+  postgres:
+    image: ""
+  redis:
+    image: ""
 
 # ── ZFS Agent 接続 ────────────────────────────────────────────────────────────
 # Operator / API サーバーの両方が ZFS Agent に接続してクローン・スナップショットを操作する。
