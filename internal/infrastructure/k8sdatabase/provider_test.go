@@ -371,7 +371,7 @@ func TestStart_NodePortが割り当てられていないときエラーを返す
 	}
 }
 
-func TestStart_PVにhardマウントオプションとNFSv4が設定される(t *testing.T) {
+func TestStart_PVのNFSマウントオプションが全て設定される(t *testing.T) {
 	ctx := context.Background()
 	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
 	p := newProvider(c)
@@ -383,14 +383,21 @@ func TestStart_PVにhardマウントオプションとNFSv4が設定される(t 
 	if err := c.Get(ctx, types.NamespacedName{Name: "branchdb-pv-mount-branch"}, &pv); err != nil {
 		t.Fatalf("PV が作成されていない: %v", err)
 	}
-	for _, want := range []string{"hard", "nfsvers=4.1"} {
-		found := false
-		for _, o := range pv.Spec.MountOptions {
-			if o == want {
-				found = true
-			}
-		}
-		if !found {
+	wantOptions := []string{
+		"hard",
+		"proto=tcp",
+		"nfsvers=4.1",
+		"rsize=1048576",
+		"wsize=1048576",
+		"timeo=600",
+		"retrans=2",
+	}
+	optSet := make(map[string]bool, len(pv.Spec.MountOptions))
+	for _, o := range pv.Spec.MountOptions {
+		optSet[o] = true
+	}
+	for _, want := range wantOptions {
+		if !optSet[want] {
 			t.Errorf("PV.MountOptions に %q が含まれていない (got %v)", want, pv.Spec.MountOptions)
 		}
 	}

@@ -18,9 +18,21 @@ import (
 )
 
 // nfsMountOptions は NFS ボリューム上でデータベースを動かすために必要なマウントオプション。
-// hard: ネットワーク断絶時に I/O をブロックし データ破損を防ぐ（soft は禁止）。
+// hard:        ネットワーク瞬断時にエラーを返さず I/O をブロックしてデータ破損を防ぐ（soft は禁止）。
+// proto=tcp:   信頼性の高い TCP を使用する。
 // nfsvers=4.1: ロック機構がプロトコル統合済みのため NFSv3 の NLM スタック問題を回避。
-var nfsMountOptions = []string{"hard", "nfsvers=4.1", "timeo=600", "retrans=3"}
+// rsize/wsize: ブロックサイズを 1MB に最大化してスループットを向上させる。
+// timeo=600:   タイムアウトを 60 秒に設定する（単位は 0.1 秒）。
+// retrans=2:   リトライ回数。
+var nfsMountOptions = []string{
+	"hard",
+	"proto=tcp",
+	"nfsvers=4.1",
+	"rsize=1048576",
+	"wsize=1048576",
+	"timeo=600",
+	"retrans=2",
+}
 
 // dbConfig はデータベース種別ごとの設定を保持する。
 type dbConfig struct {
