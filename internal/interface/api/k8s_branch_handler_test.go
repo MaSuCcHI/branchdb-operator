@@ -866,6 +866,7 @@ type mockVolumeProvider struct {
 	deleteSnapshotFunc func(ctx context.Context, dbType, name string) error
 	listSnapshotsFunc  func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error)
 	listClonesFunc     func(ctx context.Context, dbType string) ([]string, error)
+	gcSnapshotsFunc    func(ctx context.Context, dbType string, keep int) ([]string, error)
 	resetDatasetFunc   func(ctx context.Context, dbType string) error
 }
 
@@ -890,7 +891,10 @@ func (m *mockVolumeProvider) ListClones(ctx context.Context, dbType string) ([]s
 	return nil, nil
 }
 
-func (m *mockVolumeProvider) GCSnapshots(_ context.Context, _ string, _ int) ([]string, error) {
+func (m *mockVolumeProvider) GCSnapshots(ctx context.Context, dbType string, keep int) ([]string, error) {
+	if m.gcSnapshotsFunc != nil {
+		return m.gcSnapshotsFunc(ctx, dbType, keep)
+	}
 	return nil, nil
 }
 
@@ -1427,6 +1431,126 @@ func TestK8sReset_ResetDatasetエラーのとき500を返す(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("got %d, want 500", w.Code)
+	}
+}
+
+func TestK8sDeleteSnapshot_DeleteSnapshotエラーのとき500を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockVP := &mockVolumeProvider{
+		deleteSnapshotFunc: func(_ context.Context, _, _ string) error {
+			return errors.New("zfs destroy failed")
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/snapshots/snap-001", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got status %d, want 500", w.Code)
+	}
+}
+
+func TestK8sGC_GCSnapshotsエラーのとき500を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockVP := &mockVolumeProvider{
+		gcSnapshotsFunc: func(_ context.Context, _ string, _ int) ([]string, error) {
+			return nil, errors.New("gc failed")
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/gc", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got status %d, want 500", w.Code)
+	}
+}
+
+func TestK8sReset_dbTypeが一致しないCRはスキップされる(t *testing.T) {
+	scheme := newK8sTestScheme()
+	// postgres の CR だけ存在する状態で mysql をリセット → スキップされて 0 件
+	cr := v1alpha1.DatabaseBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: "pg-branch", Namespace: "default"},
+		Spec:       v1alpha1.DatabaseBranchSpec{DatabaseType: "postgres"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&cr).Build()
+
+	mockVP := &mockVolumeProvider{}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	body, _ := json.Marshal(map[string]string{"db_type": "mysql"})
+	req := httptest.NewRequest(http.MethodPost, "/snapshots/reset", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["deleted_branches"] != float64(0) {
+		t.Errorf("deleted_branches = %v, want 0 (postgres CR should be skipped)", resp["deleted_branches"])
+	}
+}
+
+func TestServeOpenAPISpec_YAMLが返る(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/yaml; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want application/yaml; charset=utf-8", ct)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("BranchDB API")) {
+		t.Error("response body does not contain 'BranchDB API'")
+	}
+}
+
+func TestServeSwaggerUI_HTMLが返る(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("swagger-ui")) {
+		t.Error("response body does not contain 'swagger-ui'")
+	}
+}
+
+func TestInferSnapshotRole_日付部分に非数字がある場合はcurrentを返す(t *testing.T) {
+	// 末尾16文字が -YYYYMMDD-HHMMSS 形式だが日付部分に非数字を含む → "current"
+	// "base-2026abcd-175740" → suffix="-2026abcd-175740", datePart="2026abcd"
+	got := api.InferSnapshotRole("base-2026abcd-175740")
+	if got != "current" {
+		t.Errorf("InferSnapshotRole(%q) = %q, want current", "base-2026abcd-175740", got)
 	}
 }
 
