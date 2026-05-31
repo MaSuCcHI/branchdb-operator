@@ -1,8 +1,10 @@
 # zfs-db-k8s Development Guide
 
+このファイルは [Claude Code](https://claude.ai/code) が本リポジトリで作業する際に参照する開発ガイドです。
+
 ## 開発プロセス: t-wada式TDD
 
-実装はRed → Green → Refactorのサイクルを厳守する。
+実装は Red → Green → Refactor のサイクルを厳守する。
 
 1. **Red** — 失敗するテストを1つだけ書く
 2. **Green** — そのテストを通過させる最小限のコードを書く
@@ -17,9 +19,9 @@
 依存の方向は外側から内側（インフラ → インターフェース → ドメイン）。
 
 ```
-domain/        # VolumeProvider / BranchMySQLProvider インターフェース。外部依存ゼロ。
-infrastructure/  # k8smysql / zfsagent / zfs の実装。
-interface/     # operator (Reconciler) / api (REST + SPA) の入出力アダプタ。
+domain/          # VolumeProvider / BranchDatabaseProvider インターフェース。外部依存ゼロ。
+infrastructure/  # k8sdatabase / zfsagent / zfs の実装。
+interface/       # operator (Reconciler) / api (REST + SPA) の入出力アダプタ。
 ```
 
 ---
@@ -73,5 +75,6 @@ interface/
 | `ZFSDB_ZFSAGENT_TOKEN` | *(未設定)* | ZFS Agent 認証トークン |
 | `ZFSAGENT_ADDR` | `:9090` | ZFS Agent のリッスンアドレス |
 | `ZFSAGENT_TOKEN` | *(必須)* | ZFS Agent 認証トークン |
-| `ZFSAGENT_POOL` | `tank` | ZFS pool 名 |
-| `ZFSAGENT_DATASET` | `mysql` | ZFS dataset 名 |
+| `ZFSAGENT_POOL` | `tank` | ZFS pool 名（シングルデータセット時） |
+| `ZFSAGENT_DATASET` | `mysql` | ZFS dataset 名（シングルデータセット時） |
+| `ZFSAGENT_DATASETS` | *(未設定)* | マルチデータセット設定 例: `mysql:tank/mysql,postgres:tank/postgres` |
