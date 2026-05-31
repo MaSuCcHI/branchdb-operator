@@ -83,19 +83,42 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
   const [snapshotRef, setSnapshotRef] = useState('')
   const [ttlHours, setTtlHours] = useState(0)
   const [dbType, setDbType] = useState('mysql')
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
+  const [snapshotsUnavailable, setSnapshotsUnavailable] = useState(false)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { nameRef.current?.focus() }, [])
 
+  useEffect(() => {
+    setSnapshotsLoading(true)
+    setSnapshotsUnavailable(false)
+    setSnapshotRef('')
+    setSnapshots([])
+    api.snapshots.list(dbType)
+      .then(snaps => {
+        setSnapshots(snaps)
+        if (snaps.length > 0) setSnapshotRef(snaps[0].name)
+      })
+      .catch(e => {
+        if (String(e).includes('501')) setSnapshotsUnavailable(true)
+        else setErr(String(e))
+      })
+      .finally(() => setSnapshotsLoading(false))
+  }, [dbType])
+
+  const canCreate = !snapshotsUnavailable && !snapshotsLoading && snapshotRef !== ''
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) { setErr('Name is required'); return }
+    if (!canCreate) return
     setLoading(true)
     setErr('')
     try {
-      await onCreate(name.trim(), snapshotRef.trim(), ttlHours, dbType)
+      await onCreate(name.trim(), snapshotRef, ttlHours, dbType)
       onClose()
     } catch (ex) {
       setErr(String(ex))
@@ -128,13 +151,24 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
             </select>
           </div>
           <div className="form-field">
-            <label>Snapshot Ref</label>
-            <input
-              value={snapshotRef}
-              onChange={e => setSnapshotRef(e.target.value)}
-              placeholder="e.g. base"
-            />
-            <div className="form-hint">Leave empty to use the latest snapshot</div>
+            <label>Snapshot *</label>
+            {snapshotsUnavailable ? (
+              <div className="form-hint form-hint-error">
+                Snapshot API unavailable — set <code>ZFSDB_ZFSAGENT_URL</code> to enable
+              </div>
+            ) : snapshotsLoading ? (
+              <div className="form-hint">Loading snapshots...</div>
+            ) : snapshots.length === 0 ? (
+              <div className="form-hint form-hint-error">No snapshots available for {dbType}</div>
+            ) : (
+              <select value={snapshotRef} onChange={e => setSnapshotRef(e.target.value)}>
+                {snapshots.map(s => (
+                  <option key={s.name} value={s.name}>
+                    {s.name} — {new Date(s.created_at).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="form-field">
             <label>TTL Hours</label>
@@ -151,7 +185,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
             <button type="button" className="btn" onClick={onClose} disabled={loading}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
+            <button type="submit" className="btn btn-primary" disabled={loading || !canCreate}>
               {loading ? 'Creating...' : 'Create'}
             </button>
           </div>
@@ -434,15 +468,16 @@ function SnapshotsTab() {
   const [notConfigured, setNotConfigured] = useState(false)
   const [taking, setTaking] = useState(false)
   const [err, setErr] = useState('')
+  const [dbTypeFilter, setDbTypeFilter] = useState('mysql')
 
   const load = useCallback(() => {
-    api.snapshots.list()
+    api.snapshots.list(dbTypeFilter)
       .then(snaps => { setSnapshots(snaps); setNotConfigured(false) })
       .catch(e => {
         if (String(e).includes('501')) setNotConfigured(true)
         else setErr(String(e))
       })
-  }, [])
+  }, [dbTypeFilter])
 
   useEffect(() => { load() }, [load])
 
@@ -450,7 +485,7 @@ function SnapshotsTab() {
     setTaking(true)
     setErr('')
     try {
-      await api.snapshots.take()
+      await api.snapshots.take(dbTypeFilter)
       load()
     } catch (ex) {
       setErr(String(ex))
@@ -472,6 +507,15 @@ function SnapshotsTab() {
     <>
       {err && <div className="error-banner">{err}</div>}
       <div className="toolbar">
+        <select
+          value={dbTypeFilter}
+          onChange={e => setDbTypeFilter(e.target.value)}
+          className="db-type-filter"
+        >
+          <option value="mysql">MySQL</option>
+          <option value="postgres">PostgreSQL</option>
+          <option value="redis">Redis</option>
+        </select>
         <button className="btn btn-primary" onClick={handleTake} disabled={taking}>
           {taking ? 'Taking...' : 'Take Snapshot'}
         </button>
@@ -491,6 +535,7 @@ function SnapshotsTab() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>DB Type</th>
                 <th>Created At</th>
               </tr>
             </thead>
@@ -498,6 +543,7 @@ function SnapshotsTab() {
               {snapshots.map(s => (
                 <tr key={s.name}>
                   <td>{s.name}</td>
+                  <td>{s.database_type ?? '—'}</td>
                   <td>{new Date(s.created_at).toLocaleString()}</td>
                 </tr>
               ))}

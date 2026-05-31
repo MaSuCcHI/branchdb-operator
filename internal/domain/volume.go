@@ -24,6 +24,7 @@ type VolumeInfo struct {
 
 // SnapshotInfo はスナップショットのメタデータを保持する値型。
 type SnapshotInfo struct {
-	Name      string
-	CreatedAt time.Time
+	Name         string
+	CreatedAt    time.Time
+	DatabaseType string // "mysql", "postgres" など
 }

@@ -155,8 +155,9 @@ func (p *Provider) ListSnapshots(ctx context.Context, dbType string) ([]domain.S
 	}
 
 	var raw []struct {
-		Name      string `json:"name"`
-		CreatedAt string `json:"created_at"`
+		Name         string `json:"name"`
+		CreatedAt    string `json:"created_at"`
+		DatabaseType string `json:"database_type"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("zfsagent: decode response: %w", err)
@@ -169,8 +170,9 @@ func (p *Provider) ListSnapshots(ctx context.Context, dbType string) ([]domain.S
 			return nil, fmt.Errorf("zfsagent: parse created_at %q: %w", r.CreatedAt, err)
 		}
 		snaps = append(snaps, domain.SnapshotInfo{
-			Name:      r.Name,
-			CreatedAt: t,
+			Name:         r.Name,
+			CreatedAt:    t,
+			DatabaseType: r.DatabaseType,
 		})
 	}
 	return snaps, nil

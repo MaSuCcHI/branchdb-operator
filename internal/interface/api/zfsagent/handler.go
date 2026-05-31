@@ -118,11 +118,16 @@ func (h *Handler) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 type snapshotResponse struct {
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	Name         string `json:"name"`
+	CreatedAt    string `json:"created_at"`
+	DatabaseType string `json:"database_type,omitempty"`
 }
 
 func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	dbType := r.URL.Query().Get("db_type")
+	if dbType == "" {
+		dbType = h.defaultType
+	}
 	snapshots, err := h.pickProvider(r).ListSnapshots(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -131,8 +136,9 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	resp := make([]snapshotResponse, len(snapshots))
 	for i, s := range snapshots {
 		resp[i] = snapshotResponse{
-			Name:      s.Name,
-			CreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Name:         s.Name,
+			CreatedAt:    s.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			DatabaseType: dbType,
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

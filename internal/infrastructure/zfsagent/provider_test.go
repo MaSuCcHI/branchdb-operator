@@ -150,12 +150,13 @@ func TestProvider_スナップショット一覧を取得する(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		type snapshotResp struct {
-			Name      string `json:"name"`
-			CreatedAt string `json:"created_at"`
+			Name         string `json:"name"`
+			CreatedAt    string `json:"created_at"`
+			DatabaseType string `json:"database_type"`
 		}
 		resp := []snapshotResp{
-			{Name: "snap-001", CreatedAt: now.Format(time.RFC3339)},
-			{Name: "snap-002", CreatedAt: now.Add(time.Hour).Format(time.RFC3339)},
+			{Name: "snap-001", CreatedAt: now.Format(time.RFC3339), DatabaseType: "mysql"},
+			{Name: "snap-002", CreatedAt: now.Add(time.Hour).Format(time.RFC3339), DatabaseType: "mysql"},
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
@@ -174,6 +175,9 @@ func TestProvider_スナップショット一覧を取得する(t *testing.T) {
 		}
 		if !got[i].CreatedAt.Equal(want.CreatedAt) {
 			t.Errorf("[%d] CreatedAt: got %v, want %v", i, got[i].CreatedAt, want.CreatedAt)
+		}
+		if got[i].DatabaseType != "mysql" {
+			t.Errorf("[%d] DatabaseType: got %q, want mysql", i, got[i].DatabaseType)
 		}
 	}
 }

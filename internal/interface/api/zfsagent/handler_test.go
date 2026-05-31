@@ -197,7 +197,7 @@ func TestHandler_スナップショット一覧は200とリストを返す(t *te
 	}
 	router := newRouter(provider)
 
-	req := authorizedRequest(http.MethodGet, "/snapshots", nil)
+	req := authorizedRequest(http.MethodGet, "/snapshots?db_type=mysql", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -211,6 +211,9 @@ func TestHandler_スナップショット一覧は200とリストを返す(t *te
 	}
 	if resp[0]["name"] != "snap-20260526" {
 		t.Errorf("got name %q, want %q", resp[0]["name"], "snap-20260526")
+	}
+	if resp[0]["database_type"] != "mysql" {
+		t.Errorf("got database_type %q, want %q", resp[0]["database_type"], "mysql")
 	}
 }
 

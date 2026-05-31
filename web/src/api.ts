@@ -27,7 +27,7 @@ export const api = {
     get: () => request<Stats>('/stats'),
   },
   snapshots: {
-    list: () => request<Snapshot[]>('/snapshots'),
-    take: () => request<Snapshot>('/snapshots', { method: 'POST' }),
+    list: (dbType?: string) => request<Snapshot[]>(`/snapshots${dbType ? `?db_type=${encodeURIComponent(dbType)}` : ''}`),
+    take: (dbType?: string) => request<Snapshot>('/snapshots', { method: 'POST', body: JSON.stringify(dbType ? { db_type: dbType } : {}) }),
   },
 }

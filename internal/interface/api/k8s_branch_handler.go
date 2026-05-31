@@ -68,8 +68,9 @@ type BranchMetrics struct {
 
 // K8sSnapshotResponse is the response for snapshot operations.
 type K8sSnapshotResponse struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	Name         string    `json:"name"`
+	CreatedAt    time.Time `json:"created_at"`
+	DatabaseType string    `json:"database_type,omitempty"`
 }
 
 // mysqlQuerier は MySQL の接続数を取得する関数型。テストで差し替え可能にするための内部 DI。
@@ -137,6 +138,26 @@ func (h *K8sBranchHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
+	}
+
+	if h.volumeProvider != nil {
+		if req.SnapshotRef == "" {
+			writeError(w, http.StatusBadRequest, "snapshot_ref is required")
+			return
+		}
+		if snaps, err := h.volumeProvider.ListSnapshots(r.Context(), req.DatabaseType); err == nil {
+			found := false
+			for _, s := range snaps {
+				if s.Name == req.SnapshotRef {
+					found = true
+					break
+				}
+			}
+			if !found {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("snapshot %q not found for database type %q", req.SnapshotRef, req.DatabaseType))
+				return
+			}
+		}
 	}
 
 	cr := &v1alpha1.DatabaseBranch{
@@ -340,8 +361,9 @@ func (h *K8sBranchHandler) handleListSnapshots(w http.ResponseWriter, r *http.Re
 	resp := make([]K8sSnapshotResponse, len(snaps))
 	for i, s := range snaps {
 		resp[i] = K8sSnapshotResponse{
-			Name:      s.Name,
-			CreatedAt: s.CreatedAt,
+			Name:         s.Name,
+			CreatedAt:    s.CreatedAt,
+			DatabaseType: s.DatabaseType,
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

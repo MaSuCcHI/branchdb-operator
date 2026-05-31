@@ -40,4 +40,5 @@ export interface BranchMetrics {
 export interface Snapshot {
   name: string
   created_at: string
+  database_type?: string
 }

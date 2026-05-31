@@ -511,6 +511,20 @@ body {
   margin-top: 4px;
 }
 
+.form-hint-error {
+  color: var(--error);
+}
+
+.db-type-filter {
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
