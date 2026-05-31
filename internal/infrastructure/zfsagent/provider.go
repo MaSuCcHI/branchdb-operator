@@ -89,10 +89,16 @@ func (p *Provider) DeleteSnapshot(ctx context.Context, dbType, name string) erro
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("zfsagent: snapshot not found: %s", name)
-	}
 	if resp.StatusCode >= 300 {
+		var errBody struct {
+			Error string `json:"error"`
+		}
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
+			return fmt.Errorf("%s", errBody.Error)
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("zfsagent: snapshot not found: %s", name)
+		}
 		return fmt.Errorf("zfsagent: DeleteSnapshot: unexpected status %d", resp.StatusCode)
 	}
 	return nil

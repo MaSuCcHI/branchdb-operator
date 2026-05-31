@@ -66,10 +66,15 @@ func (p *AgentProvider) DeleteSnapshot(ctx context.Context, name string) error {
 	zfsName := fmt.Sprintf("%s@%s", p.dataset, name)
 	out, err := exec.CommandContext(ctx, "zfs", "destroy", zfsName).CombinedOutput()
 	if err != nil {
-		if strings.Contains(string(out), "dataset does not exist") {
+		outStr := strings.TrimSpace(string(out))
+		switch {
+		case strings.Contains(outStr, "dataset does not exist"):
 			return zfsagent.ErrNotFound
+		case strings.Contains(outStr, "has dependent clones"):
+			return fmt.Errorf("snapshot %q has dependent clones (delete all branches using this snapshot first)", name)
+		default:
+			return fmt.Errorf("zfs destroy snapshot: %w (output: %s)", err, outStr)
 		}
-		return fmt.Errorf("zfs destroy snapshot: %w", err)
 	}
 	return nil
 }
