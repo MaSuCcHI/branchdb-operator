@@ -32,8 +32,11 @@ func NewAgentProvider(dataset string) *AgentProvider {
 var _ zfsagent.AgentVolumeProvider = (*AgentProvider)(nil)
 
 // TakeSnapshot はスナップショットを作成する。
-// overwrite が true の場合は既存のスナップショットを削除してから作成する。
-// 依存クローン（ブランチ）が存在する場合は削除できないため明確なエラーを返す。
+// overwrite が true の場合:
+//   - 依存クローンがなければ既存スナップショットを削除して新規作成。
+//   - 依存クローン（ブランチ）がある場合は既存スナップショットをリネームして
+//     アーカイブし（例: base → base-20260531-150405）、同名の新スナップショットを作成する。
+//     ZFS は rename 時にクローンの origin を自動更新するため、既存ブランチは引き続き動作する。
 func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string, overwrite bool) error {
 	zfsName := fmt.Sprintf("%s@%s", p.dataset, name)
 	if overwrite {
@@ -44,7 +47,12 @@ func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string, overwrite
 			case strings.Contains(outStr, "dataset does not exist"):
 				// スナップショットが存在しない → そのまま新規作成
 			case strings.Contains(outStr, "has dependent clones"):
-				return fmt.Errorf("snapshot %q has dependent clones (delete all branches using this snapshot first)", name)
+				// 既存スナップショットをタイムスタンプ付きでアーカイブ
+				archiveName := fmt.Sprintf("%s@%s-%s", p.dataset, name, time.Now().Format("20060102-150405"))
+				if renameErr := run(ctx, "zfs", "rename", zfsName, archiveName); renameErr != nil {
+					return fmt.Errorf("zfs rename snapshot: %w", renameErr)
+				}
+				// fall through: 同名の新スナップショットを作成
 			default:
 				return fmt.Errorf("zfs destroy snapshot: %w (output: %s)", err, outStr)
 			}
