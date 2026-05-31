@@ -529,127 +529,6 @@ func (h *K8sBranchHandler) handleResetDataset(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// branchLabel はブランチ関連リソースに付与されるラベルキー。
-const branchLabel = "branchdb-branch"
-
-// ClusterResourcesResponse はクラスター内の k8s リソース一覧。
-type ClusterResourcesResponse struct {
-	Pods     []PodResourceInfo     `json:"pods"`
-	PVCs     []PVCResourceInfo     `json:"pvcs"`
-	Services []ServiceResourceInfo `json:"services"`
-}
-
-type PodResourceInfo struct {
-	Name      string    `json:"name"`
-	Branch    string    `json:"branch"`
-	Phase     string    `json:"phase"`
-	Ready     bool      `json:"ready"`
-	Restarts  int       `json:"restarts"`
-	Node      string    `json:"node,omitempty"`
-	Message   string    `json:"message,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type PVCResourceInfo struct {
-	Name      string    `json:"name"`
-	Branch    string    `json:"branch"`
-	Status    string    `json:"status"`
-	Capacity  string    `json:"capacity,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type ServiceResourceInfo struct {
-	Name      string    `json:"name"`
-	Branch    string    `json:"branch"`
-	ClusterIP string    `json:"cluster_ip,omitempty"`
-	NodePort  int       `json:"node_port,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-func (h *K8sBranchHandler) handleListResources(w http.ResponseWriter, r *http.Request) {
-	labelSel := client.MatchingLabels{branchLabel: ""}
-	// label value が空でも selector が動くよう HasLabels を使う
-	opts := []client.ListOption{
-		client.InNamespace(h.namespace),
-		client.HasLabels{branchLabel},
-	}
-
-	_ = labelSel // suppress unused warning
-
-	var resp ClusterResourcesResponse
-
-	// Pods
-	var podList corev1.PodList
-	if err := h.k8sClient.List(r.Context(), &podList, opts...); err == nil {
-		for _, p := range podList.Items {
-			info := PodResourceInfo{
-				Name:      p.Name,
-				Branch:    p.Labels[branchLabel],
-				Phase:     string(p.Status.Phase),
-				Node:      p.Spec.NodeName,
-				CreatedAt: p.CreationTimestamp.Time,
-			}
-			for _, cs := range p.Status.ContainerStatuses {
-				info.Restarts += int(cs.RestartCount)
-				if cs.Ready {
-					info.Ready = true
-				}
-				if cs.State.Waiting != nil {
-					info.Message = cs.State.Waiting.Message
-				}
-			}
-			resp.Pods = append(resp.Pods, info)
-		}
-	}
-
-	// PVCs
-	var pvcList corev1.PersistentVolumeClaimList
-	if err := h.k8sClient.List(r.Context(), &pvcList, opts...); err == nil {
-		for _, pvc := range pvcList.Items {
-			info := PVCResourceInfo{
-				Name:      pvc.Name,
-				Branch:    pvc.Labels[branchLabel],
-				Status:    string(pvc.Status.Phase),
-				CreatedAt: pvc.CreationTimestamp.Time,
-			}
-			if cap, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
-				info.Capacity = cap.String()
-			}
-			resp.PVCs = append(resp.PVCs, info)
-		}
-	}
-
-	// Services
-	var svcList corev1.ServiceList
-	if err := h.k8sClient.List(r.Context(), &svcList, opts...); err == nil {
-		for _, svc := range svcList.Items {
-			info := ServiceResourceInfo{
-				Name:      svc.Name,
-				Branch:    svc.Labels[branchLabel],
-				ClusterIP: svc.Spec.ClusterIP,
-				CreatedAt: svc.CreationTimestamp.Time,
-			}
-			for _, port := range svc.Spec.Ports {
-				if port.NodePort > 0 {
-					info.NodePort = int(port.NodePort)
-				}
-			}
-			resp.Services = append(resp.Services, info)
-		}
-	}
-
-	if resp.Pods == nil {
-		resp.Pods = []PodResourceInfo{}
-	}
-	if resp.PVCs == nil {
-		resp.PVCs = []PVCResourceInfo{}
-	}
-	if resp.Services == nil {
-		resp.Services = []ServiceResourceInfo{}
-	}
-
-	writeJSON(w, http.StatusOK, resp)
-}
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
 	resp := BranchResponse{
@@ -696,7 +575,6 @@ func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	r.Get("/branches/{name}/pod", h.handleGetPod)
 	r.Get("/branches/{name}/metrics", h.handleGetMetrics)
 	r.Get("/stats", h.handleStats)
-	r.Get("/resources", h.handleListResources)
 	r.Get("/snapshots", h.handleListSnapshots)
 	r.Post("/snapshots", h.handleTakeSnapshot)
 	r.Delete("/snapshots/{name}", h.handleDeleteSnapshot)
