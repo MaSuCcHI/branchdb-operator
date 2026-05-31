@@ -316,7 +316,7 @@ components:
           example: 30001
         dsn:
           type: string
-          description: 接続 DSN（MySQL: root@tcp(...)/）
+          description: "接続 DSN（MySQL: root@tcp(...)/）"
           example: "root@tcp(192.168.5.1:30001)/"
         cluster_host:
           type: string
