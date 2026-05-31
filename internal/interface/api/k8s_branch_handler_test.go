@@ -782,7 +782,7 @@ func TestK8sTakeSnapshot_VolumeProviderが設定済みのとき200を返す(t *t
 
 	called := false
 	mockVP := &mockVolumeProvider{
-		takeSnapshotFunc: func(ctx context.Context, dbType, name string) error {
+		takeSnapshotFunc: func(ctx context.Context, dbType, name string, overwrite bool) error {
 			called = true
 			return nil
 		},
@@ -862,13 +862,13 @@ func TestK8sGetBranch_新フィールドが返る(t *testing.T) {
 
 // mockVolumeProvider はテスト用の VolumeProvider 実装。
 type mockVolumeProvider struct {
-	takeSnapshotFunc  func(ctx context.Context, dbType, name string) error
+	takeSnapshotFunc  func(ctx context.Context, dbType, name string, overwrite bool) error
 	listSnapshotsFunc func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error)
 }
 
-func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, dbType, name string) error {
+func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, dbType, name string, overwrite bool) error {
 	if m.takeSnapshotFunc != nil {
-		return m.takeSnapshotFunc(ctx, dbType, name)
+		return m.takeSnapshotFunc(ctx, dbType, name, overwrite)
 	}
 	return nil
 }
@@ -916,7 +916,7 @@ func TestK8sTakeSnapshot_エラーのとき500を返す(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	mockVP := &mockVolumeProvider{
-		takeSnapshotFunc: func(ctx context.Context, dbType, name string) error {
+		takeSnapshotFunc: func(ctx context.Context, dbType, name string, overwrite bool) error {
 			return errors.New("storage failure")
 		},
 	}

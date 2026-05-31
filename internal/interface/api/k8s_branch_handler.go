@@ -376,16 +376,21 @@ func (h *K8sBranchHandler) handleTakeSnapshot(w http.ResponseWriter, r *http.Req
 	}
 
 	var body struct {
-		DBType string `json:"db_type"`
+		DBType    string `json:"db_type"`
+		Name      string `json:"name"`
+		Overwrite bool   `json:"overwrite"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Name == "" {
+		body.Name = fmt.Sprintf("auto-%s", time.Now().Format("20060102-150405"))
+	}
 
-	if err := h.volumeProvider.TakeSnapshot(r.Context(), body.DBType, "auto"); err != nil {
+	if err := h.volumeProvider.TakeSnapshot(r.Context(), body.DBType, body.Name, body.Overwrite); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": body.Name})
 }
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {

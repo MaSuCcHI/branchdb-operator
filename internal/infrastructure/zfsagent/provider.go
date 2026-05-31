@@ -42,8 +42,8 @@ func (p *Provider) WithHTTPClient(c *http.Client) *Provider {
 }
 
 // TakeSnapshot は ZFS Agent にスナップショット作成を要求する。
-func (p *Provider) TakeSnapshot(ctx context.Context, dbType, name string) error {
-	body, err := json.Marshal(map[string]string{"name": name})
+func (p *Provider) TakeSnapshot(ctx context.Context, dbType, name string, overwrite bool) error {
+	body, err := json.Marshal(map[string]any{"name": name, "overwrite": overwrite})
 	if err != nil {
 		return fmt.Errorf("zfsagent: marshal request: %w", err)
 	}

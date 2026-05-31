@@ -26,7 +26,9 @@ type mockVolumeProvider struct {
 	deleteCloneFunc func(ctx context.Context, branchName string) error
 }
 
-func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _, _ string) error { return nil }
+func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _, _ string, _ bool) error {
+	return nil
+}
 
 func (m *mockVolumeProvider) CreateClone(ctx context.Context, _ string, snapshotName, branchName string) (domain.VolumeInfo, error) {
 	if m.createCloneFunc != nil {

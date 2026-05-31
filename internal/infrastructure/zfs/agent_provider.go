@@ -32,9 +32,12 @@ func NewAgentProvider(dataset string) *AgentProvider {
 var _ zfsagent.AgentVolumeProvider = (*AgentProvider)(nil)
 
 // TakeSnapshot はスナップショットを作成する。
-// name は "snap-20260526" のようなスナップショット名のみ（@ 不要）。
-func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string) error {
+// overwrite が true の場合は既存のスナップショットを削除してから作成する。
+func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string, overwrite bool) error {
 	zfsName := fmt.Sprintf("%s@%s", p.dataset, name)
+	if overwrite {
+		_ = run(ctx, "zfs", "destroy", zfsName) // 存在しない場合はエラーを無視
+	}
 	return run(ctx, "zfs", "snapshot", zfsName)
 }
 

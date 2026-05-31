@@ -461,14 +461,224 @@ function BranchesTab({ branches, stats, onRefresh, onCreate, onDelete }: Branche
   )
 }
 
+// ── TakeSnapshotModal ─────────────────────────────────────────────────────────
+
+interface TakeSnapshotModalProps {
+  dbType: string
+  existingSnapshots: Snapshot[]
+  onClose: () => void
+  onDone: () => void
+}
+
+function TakeSnapshotModal({ dbType, existingSnapshots, onClose, onDone }: TakeSnapshotModalProps) {
+  const [mode, setMode] = useState<'new' | 'overwrite'>('new')
+  const [newName, setNewName] = useState(`snap-${new Date().toISOString().slice(0, 10)}`)
+  const [overwriteTarget, setOverwriteTarget] = useState(existingSnapshots[0]?.name ?? '')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setErr('')
+    const name = mode === 'overwrite' ? overwriteTarget : newName.trim()
+    if (!name) { setErr('Name is required'); setLoading(false); return }
+    try {
+      await api.snapshots.take({ db_type: dbType, name, overwrite: mode === 'overwrite' })
+      onDone()
+      onClose()
+    } catch (ex) {
+      setErr(String(ex))
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2>Take Snapshot ({dbType})</h2>
+        {err && <div className="error-banner">{err}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label>Mode</label>
+            <div className="radio-group">
+              <label className="radio-label">
+                <input type="radio" value="new" checked={mode === 'new'} onChange={() => setMode('new')} />
+                Create new snapshot
+              </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  value="overwrite"
+                  checked={mode === 'overwrite'}
+                  onChange={() => setMode('overwrite')}
+                  disabled={existingSnapshots.length === 0}
+                />
+                Overwrite existing
+              </label>
+            </div>
+          </div>
+
+          {mode === 'new' ? (
+            <div className="form-field">
+              <label>Snapshot name *</label>
+              <input
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder="snap-2026-05-31"
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div className="form-field">
+              <label>Snapshot to overwrite *</label>
+              <select value={overwriteTarget} onChange={e => setOverwriteTarget(e.target.value)}>
+                {existingSnapshots.map(s => (
+                  <option key={s.name} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+              <div className="form-hint form-hint-error">This will permanently replace the selected snapshot.</div>
+            </div>
+          )}
+
+          <div className="modal-actions">
+            <button type="button" className="btn" onClick={onClose} disabled={loading}>Cancel</button>
+            <button
+              type="submit"
+              className={`btn ${mode === 'overwrite' ? 'btn-danger' : 'btn-primary'}`}
+              disabled={loading}
+            >
+              {loading ? 'Taking…' : mode === 'overwrite' ? 'Overwrite' : 'Take Snapshot'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── EditSession ───────────────────────────────────────────────────────────────
+
+interface EditSession {
+  branchName: string
+  snapshotName: string
+  dbType: string
+  branch: Branch | null
+  error: string
+}
+
+interface EditSessionPanelProps {
+  session: EditSession
+  existingSnapshots: Snapshot[]
+  onClose: () => void
+  onSnapshotTaken: () => void
+}
+
+function EditSessionPanel({ session, existingSnapshots, onClose, onSnapshotTaken }: EditSessionPanelProps) {
+  const b = session.branch
+  const isReady = b?.status === 'Ready'
+  const isError = b?.status === 'Error'
+  const [showSnapModal, setShowSnapModal] = useState(false)
+
+  const externalDSN = b?.dsn ?? ''
+  const clusterDSN = b?.cluster_host
+    ? session.dbType === 'postgres'
+      ? `postgres://postgres@${b.cluster_host}:5432/postgres`
+      : `root@tcp(${b.cluster_host}:3306)/`
+    : ''
+
+  return (
+    <>
+    <tr className="edit-session-row">
+      <td colSpan={4} className="edit-session-cell">
+        <div className="edit-session-panel">
+          <div className="edit-session-header">
+            <span className="edit-session-title">
+              Edit session — <code>{session.snapshotName}</code> ({session.dbType})
+            </span>
+            <div className="edit-session-actions">
+              {isReady && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowSnapModal(true)}>
+                  Take Snapshot
+                </button>
+              )}
+              <button className="btn btn-sm" onClick={onClose}>× Close</button>
+            </div>
+          </div>
+
+          {isError && (
+            <div className="error-banner">{b?.message ?? 'Branch failed'}</div>
+          )}
+
+          {!isReady && !isError && (
+            <div className="edit-session-loading">
+              <span className="spinner" /> Starting database...
+            </div>
+          )}
+
+          {isReady && b && (
+            <div className="edit-session-dsn-list">
+              {b.host && b.port && (() => {
+                const cmd = session.dbType === 'postgres'
+                  ? `psql "postgres://postgres@${b.host}:${b.port}/postgres?sslmode=disable"`
+                  : session.dbType === 'redis'
+                  ? `redis-cli -h ${b.host} -p ${b.port}`
+                  : `mysql -h ${b.host} -P ${b.port} -u root`
+                return (
+                  <div className="dsn-row">
+                    <span className="dsn-label">Command</span>
+                    <span className="dsn-text dsn-command">{cmd}</span>
+                    <CopyButton text={cmd} />
+                  </div>
+                )
+              })()}
+              {externalDSN && (
+                <div className="dsn-row">
+                  <span className="dsn-label">DSN</span>
+                  <span className="dsn-text">{externalDSN}</span>
+                  <CopyButton text={externalDSN} />
+                </div>
+              )}
+              {clusterDSN && (
+                <div className="dsn-row">
+                  <span className="dsn-label">In-cluster</span>
+                  <span className="dsn-text">{clusterDSN}</span>
+                  <CopyButton text={clusterDSN} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+    {showSnapModal && (
+      <TakeSnapshotModal
+        dbType={session.dbType}
+        existingSnapshots={existingSnapshots}
+        onClose={() => setShowSnapModal(false)}
+        onDone={onSnapshotTaken}
+      />
+    )}
+    </>
+  )
+}
+
 // ── SnapshotsTab ─────────────────────────────────────────────────────────────
+
+// edit ブランチ名からスナップショット名を取り出す ("edit-base-1234" → "base")
+function snapshotNameFromBranch(branchName: string): string | null {
+  const m = branchName.match(/^edit-(.+)-\d+$/)
+  return m ? m[1] : null
+}
 
 function SnapshotsTab() {
   const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null)
   const [notConfigured, setNotConfigured] = useState(false)
-  const [taking, setTaking] = useState(false)
   const [err, setErr] = useState('')
   const [dbTypeFilter, setDbTypeFilter] = useState('mysql')
+  const [sessions, setSessions] = useState<Record<string, EditSession>>({})
+  const [showSnapModal, setShowSnapModal] = useState(false)
+  const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({})
 
   const load = useCallback(() => {
     api.snapshots.list(dbTypeFilter)
@@ -481,17 +691,79 @@ function SnapshotsTab() {
 
   useEffect(() => { load() }, [load])
 
-  const handleTake = async () => {
-    setTaking(true)
-    setErr('')
+  // clean up polls on unmount
+  useEffect(() => {
+    const refs = pollRefs.current
+    return () => { Object.values(refs).forEach(clearInterval) }
+  }, [])
+
+  const pollBranch = useCallback((snapshotName: string, branchName: string) => {
+    if (pollRefs.current[snapshotName]) clearInterval(pollRefs.current[snapshotName])
+    pollRefs.current[snapshotName] = setInterval(async () => {
+      try {
+        const b = await api.branches.get(branchName)
+        setSessions(prev => ({
+          ...prev,
+          [snapshotName]: { ...prev[snapshotName], branch: b },
+        }))
+        if (b.status === 'Ready' || b.status === 'Error') {
+          clearInterval(pollRefs.current[snapshotName])
+        }
+      } catch {
+        clearInterval(pollRefs.current[snapshotName])
+      }
+    }, 3000)
+  }, [])
+
+  // スナップショット一覧がロードされたら既存の edit ブランチを復元する
+  useEffect(() => {
+    if (!snapshots) return
+    const snapshotNames = new Set(snapshots.map(s => s.name))
+    api.branches.list().then(branches => {
+      branches.forEach(b => {
+        const sName = snapshotNameFromBranch(b.name)
+        if (!sName || !snapshotNames.has(sName)) return
+        setSessions(prev => {
+          if (prev[sName]) return prev // 既にセッションあり
+          const session: EditSession = {
+            branchName: b.name,
+            snapshotName: sName,
+            dbType: b.database_type ?? dbTypeFilter,
+            branch: b,
+            error: '',
+          }
+          return { ...prev, [sName]: session }
+        })
+        if (b.status !== 'Ready' && b.status !== 'Error') {
+          pollBranch(sName, b.name)
+        }
+      })
+    }).catch(() => {})
+  }, [snapshots, dbTypeFilter, pollBranch])
+
+  const handleOpen = async (s: Snapshot) => {
+    if (sessions[s.name]) return // 1インスタンス制約
+    const branchName = `edit-${s.name}-${Date.now()}`
+    const dbType = s.database_type ?? dbTypeFilter
+    setSessions(prev => ({
+      ...prev,
+      [s.name]: { branchName, snapshotName: s.name, dbType, branch: null, error: '' },
+    }))
     try {
-      await api.snapshots.take(dbTypeFilter)
-      load()
+      const b = await api.branches.create({ name: branchName, snapshot_ref: s.name, database_type: dbType })
+      setSessions(prev => ({ ...prev, [s.name]: { ...prev[s.name], branch: b } }))
+      pollBranch(s.name, branchName)
     } catch (ex) {
-      setErr(String(ex))
-    } finally {
-      setTaking(false)
+      setSessions(prev => ({ ...prev, [s.name]: { ...prev[s.name], error: String(ex) } }))
     }
+  }
+
+  const handleClose = async (snapshotName: string) => {
+    const session = sessions[snapshotName]
+    if (!session) return
+    clearInterval(pollRefs.current[snapshotName])
+    setSessions(prev => { const n = { ...prev }; delete n[snapshotName]; return n })
+    try { await api.branches.delete(session.branchName) } catch { /* ignore */ }
   }
 
   if (notConfigured) {
@@ -516,8 +788,8 @@ function SnapshotsTab() {
           <option value="postgres">PostgreSQL</option>
           <option value="redis">Redis</option>
         </select>
-        <button className="btn btn-primary" onClick={handleTake} disabled={taking}>
-          {taking ? 'Taking...' : 'Take Snapshot'}
+        <button className="btn btn-primary" onClick={() => setShowSnapModal(true)}>
+          Take Snapshot
         </button>
         <div className="spacer" />
         <button className="btn" onClick={load}>Refresh</button>
@@ -537,20 +809,53 @@ function SnapshotsTab() {
                 <th>Name</th>
                 <th>DB Type</th>
                 <th>Created At</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {snapshots.map(s => (
-                <tr key={s.name}>
-                  <td>{s.name}</td>
-                  <td>{s.database_type ?? '—'}</td>
-                  <td>{new Date(s.created_at).toLocaleString()}</td>
-                </tr>
-              ))}
+              {snapshots.map(s => {
+                const session = sessions[s.name]
+                const hasSession = !!session
+                return (
+                  <>
+                    <tr key={s.name}>
+                      <td>{s.name}</td>
+                      <td>{s.database_type ?? '—'}</td>
+                      <td>{new Date(s.created_at).toLocaleString()}</td>
+                      <td>
+                        <button
+                          className={`btn btn-sm${hasSession ? ' btn-active' : ''}`}
+                          onClick={() => hasSession ? handleClose(s.name) : handleOpen(s)}
+                          disabled={hasSession && !session.branch && !session.error}
+                        >
+                          {hasSession ? '× Close' : 'Open'}
+                        </button>
+                      </td>
+                    </tr>
+                    {hasSession && (
+                      <EditSessionPanel
+                        key={`session-${s.name}`}
+                        session={session}
+                        existingSnapshots={snapshots ?? []}
+                        onClose={() => handleClose(s.name)}
+                        onSnapshotTaken={load}
+                      />
+                    )}
+                  </>
+                )
+              })}
             </tbody>
           </table>
         )}
       </div>
+      {showSnapModal && (
+        <TakeSnapshotModal
+          dbType={dbTypeFilter}
+          existingSnapshots={snapshots ?? []}
+          onClose={() => setShowSnapModal(false)}
+          onDone={load}
+        />
+      )}
     </>
   )
 }

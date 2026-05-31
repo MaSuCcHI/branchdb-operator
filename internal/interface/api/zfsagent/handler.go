@@ -18,7 +18,7 @@ var ErrNotFound = errors.New("not found")
 // AgentVolumeProvider は ZFS Agent が必要とする操作の抽象インターフェース。
 // domain.VolumeProvider を拡張してクローン一覧・単一取得を追加している。
 type AgentVolumeProvider interface {
-	TakeSnapshot(ctx context.Context, name string) error
+	TakeSnapshot(ctx context.Context, name string, overwrite bool) error
 	ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error)
 	CreateClone(ctx context.Context, snapshot, cloneName string) (domain.VolumeInfo, error)
 	DeleteClone(ctx context.Context, cloneName string) error
@@ -97,7 +97,8 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 // --- スナップショット ---
 
 type createSnapshotRequest struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	Overwrite bool   `json:"overwrite"`
 }
 
 func (h *Handler) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +111,7 @@ func (h *Handler) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := h.pickProvider(r).TakeSnapshot(r.Context(), req.Name); err != nil {
+	if err := h.pickProvider(r).TakeSnapshot(r.Context(), req.Name, req.Overwrite); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
