@@ -204,7 +204,7 @@ func writeNFSDThreads(n int) error {
 // ListClones はクローン一覧を返す。
 func (p *AgentProvider) ListClones(ctx context.Context) ([]domain.VolumeInfo, error) {
 	branchesDataset := p.dataset + "/branches"
-	out, err := exec.CommandContext(ctx, "zfs", "list", "-H", "-o", "name", branchesDataset).Output()
+	out, err := exec.CommandContext(ctx, "zfs", "list", "-r", "-H", "-o", "name", branchesDataset).Output()
 	if err != nil {
 		// branches データセットが存在しない場合は空リストを返す
 		return []domain.VolumeInfo{}, nil
@@ -217,6 +217,9 @@ func (p *AgentProvider) ListClones(ctx context.Context) ([]domain.VolumeInfo, er
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		name := strings.TrimSpace(sc.Text())
+		if name == branchesDataset {
+			continue // 親データセット自身はスキップ
+		}
 		// "pool/dataset/branches/cloneName" → "cloneName"
 		parts := strings.SplitN(name, "/", -1)
 		cloneName := parts[len(parts)-1]
