@@ -173,6 +173,17 @@ make manifests
 
 ---
 
+## Sponsors
+
+BranchDB is free and open source. If it saves you time, consider sponsoring to keep it maintained and growing.
+
+**[❤️ Sponsor on GitHub](https://github.com/sponsors/MaSuCcHI)**
+
+<!-- sponsors -->
+<!-- sponsors -->
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
