@@ -36,7 +36,7 @@ git push origin feature/payment-v2
 ### Prerequisites
 
 - Kubernetes cluster (k3s, EKS, GKE, …)
-- ZFS server with [ZFS Agent](#zfs-agent) **or** AWS FSx for OpenZFS
+- ZFS server running [ZFS Agent](#zfs-agent)
 
 ### 1. Install with Helm
 
@@ -64,9 +64,15 @@ To expose the API server externally (skip for in-cluster Ingress setups):
 ### 2. Create a branch
 
 ```bash
+# MySQL branch (default)
 curl -X POST http://<api-server>:8080/branches \
   -H 'Content-Type: application/json' \
-  -d '{"name":"feature-payment","snapshot_ref":"snap-20260101","ttl_hours":24}'
+  -d '{"name":"feature-payment","snapshot_ref":"base","ttl_hours":24}'
+
+# PostgreSQL branch
+curl -X POST http://<api-server>:8080/branches \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"feature-payment","snapshot_ref":"base","ttl_hours":24,"database_type":"postgres"}'
 ```
 
 ---
@@ -91,8 +97,8 @@ curl -X POST http://<api-server>:8080/branches \
 ┌─────────────────────┐
 │   Operator           │  controller-runtime Reconciler
 │   (cmd/operator)     │
-│   ├─ VolumeProvider  │──→ ZFS Agent / AWS FSx
-│   └─ MySQLProvider   │──→ Pod + PVC + NodePort Service
+│   ├─ VolumeProvider      │──→ ZFS Agent
+│   └─ DatabaseProvider   │──→ Pod + PVC + NodePort Service
 └─────────────────────┘
 ```
 
