@@ -30,6 +30,8 @@ func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _, _ string, _ bool
 	return nil
 }
 
+func (m *mockVolumeProvider) DeleteSnapshot(_ context.Context, _, _ string) error { return nil }
+
 func (m *mockVolumeProvider) CreateClone(ctx context.Context, _ string, snapshotName, branchName string) (domain.VolumeInfo, error) {
 	if m.createCloneFunc != nil {
 		return m.createCloneFunc(ctx, snapshotName, branchName)

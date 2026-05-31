@@ -393,6 +393,20 @@ func (h *K8sBranchHandler) handleTakeSnapshot(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": body.Name})
 }
 
+func (h *K8sBranchHandler) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	if h.volumeProvider == nil {
+		writeError(w, http.StatusNotImplemented, "VolumeProvider not configured")
+		return
+	}
+	name := chi.URLParam(r, "name")
+	dbType := r.URL.Query().Get("db_type")
+	if err := h.volumeProvider.DeleteSnapshot(r.Context(), dbType, name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
 	resp := BranchResponse{
 		Name:        cr.Name,
@@ -440,6 +454,7 @@ func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	r.Get("/stats", h.handleStats)
 	r.Get("/snapshots", h.handleListSnapshots)
 	r.Post("/snapshots", h.handleTakeSnapshot)
+	r.Delete("/snapshots/{name}", h.handleDeleteSnapshot)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

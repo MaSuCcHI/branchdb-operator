@@ -569,6 +569,11 @@ body {
 }
 
 /* Edit session */
+.snapshot-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .edit-session-row td {
   padding: 0;
   border-bottom: 1px solid var(--border);

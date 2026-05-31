@@ -41,6 +41,19 @@ func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string, overwrite
 	return run(ctx, "zfs", "snapshot", zfsName)
 }
 
+// DeleteSnapshot はスナップショットを削除する。
+func (p *AgentProvider) DeleteSnapshot(ctx context.Context, name string) error {
+	zfsName := fmt.Sprintf("%s@%s", p.dataset, name)
+	out, err := exec.CommandContext(ctx, "zfs", "destroy", zfsName).CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "dataset does not exist") {
+			return zfsagent.ErrNotFound
+		}
+		return fmt.Errorf("zfs destroy snapshot: %w", err)
+	}
+	return nil
+}
+
 // ListSnapshots はスナップショット一覧を返す。
 func (p *AgentProvider) ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error) {
 	out, err := exec.CommandContext(ctx, "zfs", "list", "-t", "snapshot", "-H", "-o", "name,creation", p.dataset).Output()

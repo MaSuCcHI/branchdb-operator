@@ -10,6 +10,7 @@ import (
 // dbType は操作対象の dataset を識別するための DB 種別（"mysql", "postgres" 等）。
 type VolumeProvider interface {
 	TakeSnapshot(ctx context.Context, dbType, name string, overwrite bool) error
+	DeleteSnapshot(ctx context.Context, dbType, name string) error
 	CreateClone(ctx context.Context, dbType, snapshot, cloneName string) (VolumeInfo, error)
 	DeleteClone(ctx context.Context, dbType, cloneName string) error
 	ListSnapshots(ctx context.Context, dbType string) ([]SnapshotInfo, error)

@@ -19,6 +19,7 @@ var ErrNotFound = errors.New("not found")
 // domain.VolumeProvider を拡張してクローン一覧・単一取得を追加している。
 type AgentVolumeProvider interface {
 	TakeSnapshot(ctx context.Context, name string, overwrite bool) error
+	DeleteSnapshot(ctx context.Context, name string) error
 	ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error)
 	CreateClone(ctx context.Context, snapshot, cloneName string) (domain.VolumeInfo, error)
 	DeleteClone(ctx context.Context, cloneName string) error
@@ -147,7 +148,7 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.pickProvider(r).DeleteClone(r.Context(), name); err != nil {
+	if err := h.pickProvider(r).DeleteSnapshot(r.Context(), name); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return

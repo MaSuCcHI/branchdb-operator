@@ -68,6 +68,30 @@ func (p *Provider) TakeSnapshot(ctx context.Context, dbType, name string, overwr
 	return nil
 }
 
+// DeleteSnapshot は ZFS Agent にスナップショット削除を要求する。
+func (p *Provider) DeleteSnapshot(ctx context.Context, dbType, name string) error {
+	url := p.baseURL + "/snapshots/" + name + dbTypeQuery(dbType)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("zfsagent: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.token)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("zfsagent: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("zfsagent: snapshot not found: %s", name)
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("zfsagent: DeleteSnapshot: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // CreateClone は ZFS Agent にクローン作成を要求し、VolumeInfo を返す。
 func (p *Provider) CreateClone(ctx context.Context, dbType, snapshot, cloneName string) (domain.VolumeInfo, error) {
 	body, err := json.Marshal(map[string]string{

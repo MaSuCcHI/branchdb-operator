@@ -30,5 +30,7 @@ export const api = {
     list: (dbType?: string) => request<Snapshot[]>(`/snapshots${dbType ? `?db_type=${encodeURIComponent(dbType)}` : ''}`),
     take: (body: { db_type?: string; name?: string; overwrite?: boolean }) =>
       request<{ status: string; name: string }>('/snapshots', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (name: string, dbType?: string) =>
+      request<void>(`/snapshots/${encodeURIComponent(name)}${dbType ? `?db_type=${encodeURIComponent(dbType)}` : ''}`, { method: 'DELETE' }),
   },
 }

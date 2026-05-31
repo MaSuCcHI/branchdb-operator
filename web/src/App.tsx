@@ -816,13 +816,14 @@ function SnapshotsTab() {
               {snapshots.map(s => {
                 const session = sessions[s.name]
                 const hasSession = !!session
+                const isDeletable = s.name !== 'base'
                 return (
                   <>
                     <tr key={s.name}>
                       <td>{s.name}</td>
                       <td>{s.database_type ?? '—'}</td>
                       <td>{new Date(s.created_at).toLocaleString()}</td>
-                      <td>
+                      <td className="snapshot-actions">
                         <button
                           className={`btn btn-sm${hasSession ? ' btn-active' : ''}`}
                           onClick={() => hasSession ? handleClose(s.name) : handleOpen(s)}
@@ -830,6 +831,20 @@ function SnapshotsTab() {
                         >
                           {hasSession ? '× Close' : 'Open'}
                         </button>
+                        {isDeletable && (
+                          <button
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              if (confirm(`Delete snapshot "${s.name}"?`)) {
+                                api.snapshots.delete(s.name, s.database_type ?? dbTypeFilter)
+                                  .then(load)
+                                  .catch(e => setErr(String(e)))
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                     {hasSession && (

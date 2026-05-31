@@ -862,13 +862,21 @@ func TestK8sGetBranch_新フィールドが返る(t *testing.T) {
 
 // mockVolumeProvider はテスト用の VolumeProvider 実装。
 type mockVolumeProvider struct {
-	takeSnapshotFunc  func(ctx context.Context, dbType, name string, overwrite bool) error
-	listSnapshotsFunc func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error)
+	takeSnapshotFunc   func(ctx context.Context, dbType, name string, overwrite bool) error
+	deleteSnapshotFunc func(ctx context.Context, dbType, name string) error
+	listSnapshotsFunc  func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error)
 }
 
 func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, dbType, name string, overwrite bool) error {
 	if m.takeSnapshotFunc != nil {
 		return m.takeSnapshotFunc(ctx, dbType, name, overwrite)
+	}
+	return nil
+}
+
+func (m *mockVolumeProvider) DeleteSnapshot(ctx context.Context, dbType, name string) error {
+	if m.deleteSnapshotFunc != nil {
+		return m.deleteSnapshotFunc(ctx, dbType, name)
 	}
 	return nil
 }
@@ -1183,5 +1191,52 @@ func TestK8sCreateBranch_database_typeがCRSpecに反映される(t *testing.T) 
 	}
 	if cr.Spec.DatabaseType != "postgres" {
 		t.Errorf("DatabaseType = %q, want postgres", cr.Spec.DatabaseType)
+	}
+}
+
+func TestK8sDeleteSnapshot_VolumeProviderが未設定のとき501を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/snapshots/snap-001", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("got status %d, want 501", w.Code)
+	}
+}
+
+func TestK8sDeleteSnapshot_正常に削除できる(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	var deletedName, deletedDBType string
+	mockVP := &mockVolumeProvider{
+		deleteSnapshotFunc: func(ctx context.Context, dbType, name string) error {
+			deletedDBType = dbType
+			deletedName = name
+			return nil
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/snapshots/snap-001?db_type=mysql", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("got status %d, want 204", w.Code)
+	}
+	if deletedName != "snap-001" {
+		t.Errorf("deleted name = %q, want snap-001", deletedName)
+	}
+	if deletedDBType != "mysql" {
+		t.Errorf("deleted dbType = %q, want mysql", deletedDBType)
 	}
 }
