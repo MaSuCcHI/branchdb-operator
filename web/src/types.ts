@@ -41,4 +41,5 @@ export interface Snapshot {
   name: string
   created_at: string
   database_type?: string
+  role?: 'current' | 'archived' | 'auto' | string
 }

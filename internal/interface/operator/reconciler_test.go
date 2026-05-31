@@ -31,6 +31,13 @@ func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _, _ string, _ bool
 }
 
 func (m *mockVolumeProvider) DeleteSnapshot(_ context.Context, _, _ string) error { return nil }
+func (m *mockVolumeProvider) ListClones(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockVolumeProvider) GCSnapshots(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+func (m *mockVolumeProvider) ResetDataset(_ context.Context, _ string) error { return nil }
 
 func (m *mockVolumeProvider) CreateClone(ctx context.Context, _ string, snapshotName, branchName string) (domain.VolumeInfo, error) {
 	if m.createCloneFunc != nil {

@@ -214,6 +214,94 @@ func (p *Provider) ListSnapshots(ctx context.Context, dbType string) ([]domain.S
 	return snaps, nil
 }
 
+// ListClones は ZFS Agent からクローン名一覧を取得する。
+func (p *Provider) ListClones(ctx context.Context, dbType string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/clones"+dbTypeQuery(dbType), nil)
+	if err != nil {
+		return nil, fmt.Errorf("zfsagent: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.token)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("zfsagent: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("zfsagent: ListClones: unexpected status %d", resp.StatusCode)
+	}
+
+	var raw []struct {
+		CloneName string `json:"clone_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("zfsagent: decode response: %w", err)
+	}
+	names := make([]string, len(raw))
+	for i, r := range raw {
+		names[i] = r.CloneName
+	}
+	return names, nil
+}
+
+// GCSnapshots は ZFS Agent にアーカイブスナップショットの GC を要求する。
+func (p *Provider) GCSnapshots(ctx context.Context, dbType string, keepCount int) ([]string, error) {
+	body, _ := json.Marshal(map[string]int{"keep_snapshots": keepCount})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/gc"+dbTypeQuery(dbType), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("zfsagent: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.token)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("zfsagent: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var errBody struct{ Error string `json:"error"` }
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
+			return nil, fmt.Errorf("%s", errBody.Error)
+		}
+		return nil, fmt.Errorf("zfsagent: GCSnapshots: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Deleted []string `json:"deleted"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("zfsagent: decode response: %w", err)
+	}
+	return result.Deleted, nil
+}
+
+// ResetDataset は ZFS Agent にデータセットのリセットを要求する。
+func (p *Provider) ResetDataset(ctx context.Context, dbType string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/reset"+dbTypeQuery(dbType), nil)
+	if err != nil {
+		return fmt.Errorf("zfsagent: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.token)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("zfsagent: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var errBody struct{ Error string `json:"error"` }
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
+			return fmt.Errorf("%s", errBody.Error)
+		}
+		return fmt.Errorf("zfsagent: ResetDataset: unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // dbTypeQuery は dbType が空でない場合に "?db_type=<dbType>" を返す。
 func dbTypeQuery(dbType string) string {
 	if dbType == "" {

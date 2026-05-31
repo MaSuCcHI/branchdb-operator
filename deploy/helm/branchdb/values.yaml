@@ -118,3 +118,13 @@ apiServer:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# ── GC（ガベージコレクション）────────────────────────────────────────────────────
+# 孤立 ZFS クローンとアーカイブスナップショットを定期削除する CronJob。
+gc:
+  enabled: true
+  schedule: "0 * * * *"   # デフォルト: 毎時
+  keepSnapshots: 5          # 同一ベース名ごとに保持するアーカイブ数
+  dbTypes:                  # GC 対象の DB 種別
+    - mysql
+    - postgres

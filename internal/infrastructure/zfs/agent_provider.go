@@ -255,6 +255,95 @@ func (p *AgentProvider) clonePath(cloneName string) string {
 	return fmt.Sprintf("%s/branches/%s", p.dataset, cloneName)
 }
 
+// GCSnapshots はアーカイブスナップショットをクリーンアップする。
+// {prefix}-YYYYMMDD-HHMMSS 形式のスナップショットを prefix ごとにグループ化し、
+// keepCount 件を超えた古いものかつ依存クローンがないものを削除する。
+func (p *AgentProvider) GCSnapshots(ctx context.Context, keepCount int) ([]string, error) {
+	snaps, err := p.ListSnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// アーカイブパターンでグループ化: prefix → []SnapshotInfo（新しい順）
+	groups := map[string][]domain.SnapshotInfo{}
+	for _, s := range snaps {
+		if len(s.Name) >= 16 {
+			suffix := s.Name[len(s.Name)-16:]
+			if suffix[0] == '-' && suffix[9] == '-' && isAllDigits(suffix[1:9]) && isAllDigits(suffix[10:16]) {
+				prefix := s.Name[:len(s.Name)-16]
+				groups[prefix] = append(groups[prefix], s)
+			}
+		}
+	}
+
+	var deleted []string
+	for _, archives := range groups {
+		// CreatedAt 降順（新しい順）にソート
+		sortSnapshotsByCreatedAtDesc(archives)
+		// keepCount 件を超えた古いものを削除候補に
+		if len(archives) <= keepCount {
+			continue
+		}
+		for _, s := range archives[keepCount:] {
+			// 依存クローンを確認（zfs get clones）
+			zfsName := fmt.Sprintf("%s@%s", p.dataset, s.Name)
+			out, _ := exec.CommandContext(ctx, "zfs", "get", "-H", "-o", "value", "clones", zfsName).Output()
+			if strings.TrimSpace(string(out)) != "" && strings.TrimSpace(string(out)) != "-" {
+				continue // 依存クローンあり → スキップ
+			}
+			if err := p.DeleteSnapshot(ctx, s.Name); err != nil {
+				continue // 削除失敗はスキップして続行
+			}
+			deleted = append(deleted, s.Name)
+		}
+	}
+	return deleted, nil
+}
+
+func isAllDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func sortSnapshotsByCreatedAtDesc(snaps []domain.SnapshotInfo) {
+	for i := 0; i < len(snaps); i++ {
+		for j := i + 1; j < len(snaps); j++ {
+			if snaps[j].CreatedAt.After(snaps[i].CreatedAt) {
+				snaps[i], snaps[j] = snaps[j], snaps[i]
+			}
+		}
+	}
+}
+
+// ResetDataset はすべてのクローンとスナップショットを削除してデータセットをリセットする。
+func (p *AgentProvider) ResetDataset(ctx context.Context) error {
+	// 1. 全クローンを削除
+	clones, err := p.ListClones(ctx)
+	if err != nil {
+		return fmt.Errorf("reset: list clones: %w", err)
+	}
+	for _, c := range clones {
+		if err := p.DeleteClone(ctx, c.CloneName); err != nil {
+			return fmt.Errorf("reset: delete clone %q: %w", c.CloneName, err)
+		}
+	}
+	// 2. 全スナップショットを削除
+	snaps, err := p.ListSnapshots(ctx)
+	if err != nil {
+		return fmt.Errorf("reset: list snapshots: %w", err)
+	}
+	for _, s := range snaps {
+		if err := p.DeleteSnapshot(ctx, s.Name); err != nil {
+			return fmt.Errorf("reset: delete snapshot %q: %w", s.Name, err)
+		}
+	}
+	return nil
+}
+
 // parseSnapshotList は "zfs list -t snapshot" の出力をパースする。
 func parseSnapshotList(out []byte, dataset string) ([]domain.SnapshotInfo, error) {
 	var result []domain.SnapshotInfo

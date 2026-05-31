@@ -21,6 +21,8 @@ type AgentVolumeProvider interface {
 	TakeSnapshot(ctx context.Context, name string, overwrite bool) error
 	DeleteSnapshot(ctx context.Context, name string) error
 	ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error)
+	GCSnapshots(ctx context.Context, keepCount int) ([]string, error)
+	ResetDataset(ctx context.Context) error
 	CreateClone(ctx context.Context, snapshot, cloneName string) (domain.VolumeInfo, error)
 	DeleteClone(ctx context.Context, cloneName string) error
 	ListClones(ctx context.Context) ([]domain.VolumeInfo, error)
@@ -61,6 +63,9 @@ func NewRouter(h *Handler) http.Handler {
 	r.Get("/clones", h.handleListClones)
 	r.Get("/clones/{name}", h.handleGetClone)
 	r.Delete("/clones/{name}", h.handleDeleteClone)
+
+	r.Post("/gc", h.handleGC)
+	r.Post("/reset", h.handleReset)
 
 	return r
 }
@@ -240,6 +245,34 @@ func (h *Handler) handleDeleteClone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- GC / Reset ---
+
+type gcRequest struct {
+	KeepSnapshots int `json:"keep_snapshots"`
+}
+
+func (h *Handler) handleGC(w http.ResponseWriter, r *http.Request) {
+	var req gcRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.KeepSnapshots <= 0 {
+		req.KeepSnapshots = 5
+	}
+	deleted, err := h.pickProvider(r).GCSnapshots(r.Context(), req.KeepSnapshots)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+}
+
+func (h *Handler) handleReset(w http.ResponseWriter, r *http.Request) {
+	if err := h.pickProvider(r).ResetDataset(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // --- ユーティリティ ---

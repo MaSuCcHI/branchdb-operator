@@ -678,6 +678,8 @@ function SnapshotsTab() {
   const [dbTypeFilter, setDbTypeFilter] = useState('mysql')
   const [sessions, setSessions] = useState<Record<string, EditSession>>({})
   const [showSnapModal, setShowSnapModal] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetMsg, setResetMsg] = useState('')
   const pollRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({})
 
   const load = useCallback(() => {
@@ -791,6 +793,9 @@ function SnapshotsTab() {
         <button className="btn btn-primary" onClick={() => setShowSnapModal(true)}>
           Take Snapshot
         </button>
+        <button className="btn btn-danger" onClick={() => setShowResetModal(true)}>
+          Full Refresh
+        </button>
         <div className="spacer" />
         <button className="btn" onClick={load}>Refresh</button>
       </div>
@@ -817,10 +822,15 @@ function SnapshotsTab() {
                 const session = sessions[s.name]
                 const hasSession = !!session
                 const isDeletable = s.name !== 'base'
+                const isArchived = s.role === 'archived'
                 return (
                   <>
-                    <tr key={s.name}>
-                      <td>{s.name}</td>
+                    <tr key={s.name} className={isArchived ? 'snapshot-row-archived' : ''}>
+                      <td>
+                        <span className="snapshot-name">{s.name}</span>
+                        {s.role === 'current' && <span className="snap-role snap-role-current">current</span>}
+                        {s.role === 'archived' && <span className="snap-role snap-role-archived">archived</span>}
+                      </td>
                       <td>{s.database_type ?? '—'}</td>
                       <td>{new Date(s.created_at).toLocaleString()}</td>
                       <td className="snapshot-actions">
@@ -870,6 +880,41 @@ function SnapshotsTab() {
           onClose={() => setShowSnapModal(false)}
           onDone={load}
         />
+      )}
+      {showResetModal && (
+        <div className="modal-overlay" onClick={() => setShowResetModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Full Refresh — {dbTypeFilter}</h2>
+            <div className="error-banner" style={{ marginBottom: 16 }}>
+              This will <strong>permanently delete ALL branches and ALL snapshots</strong> for {dbTypeFilter}.
+              You will need to load new data and take a fresh snapshot to start again.
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setShowResetModal(false)}>Cancel</button>
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  setShowResetModal(false)
+                  try {
+                    const res = await api.snapshots.reset(dbTypeFilter)
+                    setResetMsg(`Reset complete — ${res.deleted_branches} branches deleted. ${res.message}`)
+                    load()
+                  } catch (ex) {
+                    setErr(String(ex))
+                  }
+                }}
+              >
+                Delete everything and reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {resetMsg && (
+        <div className="info-banner" style={{ marginTop: 12 }}>
+          {resetMsg}
+          <button className="btn btn-sm" style={{ marginLeft: 12 }} onClick={() => setResetMsg('')}>Dismiss</button>
+        </div>
       )}
     </>
   )

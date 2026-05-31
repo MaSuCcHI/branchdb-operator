@@ -1,0 +1,43 @@
+{{- if .Values.gc.enabled }}
+{{- $apiSvcName := printf "%s-api" (include "branchdb.fullname" .) }}
+{{- $ns := .Release.Namespace }}
+{{- range .Values.gc.dbTypes }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "branchdb.fullname" $ }}-gc-{{ . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "branchdb.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gc
+spec:
+  schedule: {{ $.Values.gc.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: gc
+              image: curlimages/curl:8.5.0
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sf -X POST \
+                    -H 'Content-Type: application/json' \
+                    -d '{"db_type":"{{ . }}","keep_snapshots":{{ $.Values.gc.keepSnapshots }}}' \
+                    http://{{ $apiSvcName }}:{{ $.Values.apiServer.listenPort }}/gc
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi
+{{- end }}
+{{- end }}

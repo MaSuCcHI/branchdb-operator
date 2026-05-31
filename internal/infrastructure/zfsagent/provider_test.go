@@ -354,3 +354,296 @@ func TestProvider_HTTPクライアントがエラーを返したときListSnapsh
 		t.Error("expected error, got nil")
 	}
 }
+
+func TestProvider_DeleteSnapshotに成功する(t *testing.T) {
+	var gotPath string
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("unexpected method: %s", r.Method)
+		}
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	_ = srv
+
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "snap-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/snapshots/snap-001" {
+		t.Errorf("path = %q, want /snapshots/snap-001", gotPath)
+	}
+}
+
+func TestProvider_ListClonesに成功する(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/clones" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]string{
+			{"clone_name": "branch-1"},
+			{"clone_name": "branch-2"},
+		})
+	}))
+	_ = srv
+
+	got, err := provider.ListClones(context.Background(), "mysql")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "branch-1" || got[1] != "branch-2" {
+		t.Errorf("ListClones = %v, want [branch-1 branch-2]", got)
+	}
+}
+
+func TestProvider_GCSnapshotsに成功する(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/gc" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"deleted": []string{"base-20260101-000000"}})
+	}))
+	_ = srv
+
+	got, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "base-20260101-000000" {
+		t.Errorf("GCSnapshots = %v, want [base-20260101-000000]", got)
+	}
+}
+
+func TestProvider_ResetDatasetに成功する(t *testing.T) {
+	called := false
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/reset" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		called = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	_ = srv
+
+	err := provider.ResetDataset(context.Background(), "mysql")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("ResetDataset was not called")
+	}
+}
+
+func TestProvider_DeleteSnapshotで404のときエラーメッセージを含む(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	}))
+	_ = srv
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "gone")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_DeleteSnapshotで500のときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "zfs error"})
+	}))
+	_ = srv
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "snap-x")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ListClonesでサーバーエラーのときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "fail", http.StatusInternalServerError)
+	}))
+	_ = srv
+	_, err := provider.ListClones(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ListClonesで不正なJSONのときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("not-json"))
+	}))
+	_ = srv
+	_, err := provider.ListClones(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_GCSnapshotsでサーバーエラーのときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "gc failed"})
+	}))
+	_ = srv
+	_, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_GCSnapshotsで不正なJSONのときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("bad-json"))
+	}))
+	_ = srv
+	_, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ResetDatasetでサーバーエラーのときエラーを返す(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "reset failed"})
+	}))
+	_ = srv
+	err := provider.ResetDataset(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_dbTypeQueryは空のときを空文字を返す(t *testing.T) {
+	// ListSnapshots with empty db_type → no ?db_type= suffix
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("expected no query string, got %q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]any{})
+	}))
+	_ = srv
+	_, _ = provider.ListSnapshots(context.Background(), "")
+}
+
+func TestProvider_DeleteSnapshotでHTTPエラーのときエラーを返す(t *testing.T) {
+	provider := newFailingProvider("http://localhost:1")
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "snap-x")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ListClonesでHTTPエラーのときエラーを返す(t *testing.T) {
+	provider := newFailingProvider("http://localhost:1")
+	_, err := provider.ListClones(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_GCSnapshotsでHTTPエラーのときエラーを返す(t *testing.T) {
+	provider := newFailingProvider("http://localhost:1")
+	_, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ResetDatasetでHTTPエラーのときエラーを返す(t *testing.T) {
+	provider := newFailingProvider("http://localhost:1")
+	err := provider.ResetDataset(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_DeleteSnapshotで404かつエラーボディなしのときsnapshotNotFound(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // empty body
+	}))
+	_ = srv
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "snap-gone")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "snap-gone") {
+		t.Errorf("error should mention snap-gone: %v", err)
+	}
+}
+
+func TestProvider_GCSnapshotsで500かつエラーボディなしのときgenericエラー(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_ = srv
+	_, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_ResetDatasetで500かつエラーボディなしのときgenericエラー(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_ = srv
+	err := provider.ResetDataset(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_TakeSnapshotで500かつerrorフィールドなしのときgenericエラー(t *testing.T) {
+	srv, provider := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_ = srv
+	err := provider.TakeSnapshot(context.Background(), "mysql", "snap", false)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_無効なURLのときDeleteSnapshotはエラーを返す(t *testing.T) {
+	provider := zfsagent.NewProvider("://invalid", "token")
+	err := provider.DeleteSnapshot(context.Background(), "mysql", "snap")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_無効なURLのときListClonesはエラーを返す(t *testing.T) {
+	provider := zfsagent.NewProvider("://invalid", "token")
+	_, err := provider.ListClones(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_無効なURLのときGCSnapshotsはエラーを返す(t *testing.T) {
+	provider := zfsagent.NewProvider("://invalid", "token")
+	_, err := provider.GCSnapshots(context.Background(), "mysql", 5)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestProvider_無効なURLのときResetDatasetはエラーを返す(t *testing.T) {
+	provider := zfsagent.NewProvider("://invalid", "token")
+	err := provider.ResetDataset(context.Background(), "mysql")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}

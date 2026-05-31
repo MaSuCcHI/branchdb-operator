@@ -23,6 +23,8 @@ type mockVolumeProvider struct {
 	listSnapshotsFunc func(ctx context.Context) ([]domain.SnapshotInfo, error)
 	listClonesFunc    func(ctx context.Context) ([]domain.VolumeInfo, error)
 	getCloneFunc      func(ctx context.Context, cloneName string) (domain.VolumeInfo, error)
+	gcSnapshotsFunc   func(ctx context.Context, keepCount int) ([]string, error)
+	resetDatasetFunc  func(ctx context.Context) error
 }
 
 func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, name string, overwrite bool) error {
@@ -35,6 +37,20 @@ func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, name string, over
 func (m *mockVolumeProvider) DeleteSnapshot(ctx context.Context, name string) error {
 	if m.deleteCloneFunc != nil {
 		return m.deleteCloneFunc(ctx, name)
+	}
+	return nil
+}
+
+func (m *mockVolumeProvider) GCSnapshots(ctx context.Context, keepCount int) ([]string, error) {
+	if m.gcSnapshotsFunc != nil {
+		return m.gcSnapshotsFunc(ctx, keepCount)
+	}
+	return nil, nil
+}
+
+func (m *mockVolumeProvider) ResetDataset(ctx context.Context) error {
+	if m.resetDatasetFunc != nil {
+		return m.resetDatasetFunc(ctx)
 	}
 	return nil
 }
@@ -586,5 +602,81 @@ func TestHandler_クローン削除でProviderが一般エラーを返したと�
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("got status %d, want 500", w.Code)
+	}
+}
+
+func TestHandler_GCは200と削除リストを返す(t *testing.T) {
+	provider := &mockVolumeProvider{
+		gcSnapshotsFunc: func(_ context.Context, keepCount int) ([]string, error) {
+			return []string{"base-20260101-000000"}, nil
+		},
+	}
+	router := newRouter(provider)
+
+	body, _ := json.Marshal(map[string]int{"keep_snapshots": 3})
+	req := authorizedRequest(http.MethodPost, "/gc", body)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	deleted, _ := resp["deleted"].([]any)
+	if len(deleted) != 1 {
+		t.Errorf("got %d deleted, want 1", len(deleted))
+	}
+}
+
+func TestHandler_Resetは200を返す(t *testing.T) {
+	called := false
+	provider := &mockVolumeProvider{
+		resetDatasetFunc: func(_ context.Context) error {
+			called = true
+			return nil
+		},
+	}
+	router := newRouter(provider)
+
+	req := authorizedRequest(http.MethodPost, "/reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	if !called {
+		t.Error("ResetDataset was not called")
+	}
+}
+
+func TestHandler_GCでProviderエラーのとき500を返す(t *testing.T) {
+	provider := &mockVolumeProvider{
+		gcSnapshotsFunc: func(_ context.Context, _ int) ([]string, error) {
+			return nil, errors.New("gc error")
+		},
+	}
+	router := newRouter(provider)
+	req := authorizedRequest(http.MethodPost, "/gc", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got %d, want 500", w.Code)
+	}
+}
+
+func TestHandler_ResetでProviderエラーのとき500を返す(t *testing.T) {
+	provider := &mockVolumeProvider{
+		resetDatasetFunc: func(_ context.Context) error {
+			return errors.New("reset error")
+		},
+	}
+	router := newRouter(provider)
+	req := authorizedRequest(http.MethodPost, "/reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got %d, want 500", w.Code)
 	}
 }

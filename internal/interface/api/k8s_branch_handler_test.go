@@ -865,6 +865,8 @@ type mockVolumeProvider struct {
 	takeSnapshotFunc   func(ctx context.Context, dbType, name string, overwrite bool) error
 	deleteSnapshotFunc func(ctx context.Context, dbType, name string) error
 	listSnapshotsFunc  func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error)
+	listClonesFunc     func(ctx context.Context, dbType string) ([]string, error)
+	resetDatasetFunc   func(ctx context.Context, dbType string) error
 }
 
 func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, dbType, name string, overwrite bool) error {
@@ -877,6 +879,24 @@ func (m *mockVolumeProvider) TakeSnapshot(ctx context.Context, dbType, name stri
 func (m *mockVolumeProvider) DeleteSnapshot(ctx context.Context, dbType, name string) error {
 	if m.deleteSnapshotFunc != nil {
 		return m.deleteSnapshotFunc(ctx, dbType, name)
+	}
+	return nil
+}
+
+func (m *mockVolumeProvider) ListClones(ctx context.Context, dbType string) ([]string, error) {
+	if m.listClonesFunc != nil {
+		return m.listClonesFunc(ctx, dbType)
+	}
+	return nil, nil
+}
+
+func (m *mockVolumeProvider) GCSnapshots(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockVolumeProvider) ResetDataset(ctx context.Context, dbType string) error {
+	if m.resetDatasetFunc != nil {
+		return m.resetDatasetFunc(ctx, dbType)
 	}
 	return nil
 }
@@ -1238,5 +1258,174 @@ func TestK8sDeleteSnapshot_正常に削除できる(t *testing.T) {
 	}
 	if deletedDBType != "mysql" {
 		t.Errorf("deleted dbType = %q, want mysql", deletedDBType)
+	}
+}
+
+func TestInferSnapshotRole(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"base", "current"},
+		{"v1", "current"},
+		{"base-20260531-175740", "archived"},
+		{"v1-20260101-000000", "archived"},
+		{"auto-20260531-150405", "auto"},
+		{"auto", "current"},
+		{"base-notdate-123456", "current"},
+		{"base-20260531", "current"}, // 日付部分のみ（時刻なし）
+	}
+	for _, c := range cases {
+		got := api.InferSnapshotRole(c.name)
+		if got != c.want {
+			t.Errorf("inferSnapshotRole(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestK8sGC_VolumeProviderが未設定のとき501を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/gc", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("got status %d, want 501", w.Code)
+	}
+}
+
+func TestK8sGC_孤立クローンとアーカイブスナップショットを削除する(t *testing.T) {
+	scheme := newK8sTestScheme()
+	// CR には "active-branch" だけ存在
+	cr := v1alpha1.DatabaseBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: "active-branch", Namespace: "default"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&cr).Build()
+
+	mockVP := &mockVolumeProvider{
+		listClonesFunc: func(_ context.Context, _ string) ([]string, error) {
+			// ZFS には "active-branch"（CR あり）と "orphan"（CR なし）が存在
+			return []string{"active-branch", "orphan"}, nil
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	body, _ := json.Marshal(map[string]any{"db_type": "mysql", "keep_snapshots": 5})
+	req := httptest.NewRequest(http.MethodPost, "/gc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	orphans, _ := resp["deleted_orphan_clones"].([]any)
+	if len(orphans) != 1 || orphans[0] != "orphan" {
+		t.Errorf("deleted_orphan_clones = %v, want [orphan]", orphans)
+	}
+}
+
+func TestK8sReset_VolumeProviderが未設定のとき501を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/snapshots/reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("got status %d, want 501", w.Code)
+	}
+}
+
+func TestK8sReset_CRとZFSデータを削除する(t *testing.T) {
+	scheme := newK8sTestScheme()
+	cr := v1alpha1.DatabaseBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-branch", Namespace: "default"},
+		Spec:       v1alpha1.DatabaseBranchSpec{DatabaseType: "mysql"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&cr).Build()
+
+	resetCalled := false
+	mockVP := &mockVolumeProvider{
+		resetDatasetFunc: func(_ context.Context, _ string) error {
+			resetCalled = true
+			return nil
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	body, _ := json.Marshal(map[string]string{"db_type": "mysql"})
+	req := httptest.NewRequest(http.MethodPost, "/snapshots/reset", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	if !resetCalled {
+		t.Error("ResetDataset was not called")
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["deleted_branches"] != float64(1) {
+		t.Errorf("deleted_branches = %v, want 1", resp["deleted_branches"])
+	}
+}
+
+func TestK8sGC_ListClonesエラーのとき500を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockVP := &mockVolumeProvider{
+		listClonesFunc: func(_ context.Context, _ string) ([]string, error) {
+			return nil, errors.New("list error")
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/gc", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got %d, want 500", w.Code)
+	}
+}
+
+func TestK8sReset_ResetDatasetエラーのとき500を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockVP := &mockVolumeProvider{
+		resetDatasetFunc: func(_ context.Context, _ string) error {
+			return errors.New("reset error")
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").WithVolumeProvider(mockVP)
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/snapshots/reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("got %d, want 500", w.Code)
 	}
 }

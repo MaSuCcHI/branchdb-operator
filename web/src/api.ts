@@ -32,5 +32,7 @@ export const api = {
       request<{ status: string; name: string }>('/snapshots', { method: 'POST', body: JSON.stringify(body) }),
     delete: (name: string, dbType?: string) =>
       request<void>(`/snapshots/${encodeURIComponent(name)}${dbType ? `?db_type=${encodeURIComponent(dbType)}` : ''}`, { method: 'DELETE' }),
+    reset: (dbType: string) =>
+      request<{ deleted_branches: number; message: string }>('/snapshots/reset', { method: 'POST', body: JSON.stringify({ db_type: dbType }) }),
   },
 }

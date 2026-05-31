@@ -71,6 +71,40 @@ type K8sSnapshotResponse struct {
 	Name         string    `json:"name"`
 	CreatedAt    time.Time `json:"created_at"`
 	DatabaseType string    `json:"database_type,omitempty"`
+	Role         string    `json:"role,omitempty"` // "current" | "archived" | "auto"
+}
+
+// inferSnapshotRole は名前パターンからスナップショットの役割を推論する。
+// - "{prefix}-YYYYMMDD-HHMMSS" 形式 → "archived"
+// - "auto-YYYYMMDD-HHMMSS" 形式   → "auto"
+// - その他                        → "current"
+// InferSnapshotRole はスナップショット名から役割を推論する（テスト可能なようにエクスポート）。
+func InferSnapshotRole(name string) string {
+	// 末尾が -YYYYMMDD-HHMMSS のパターンを検出
+	if len(name) >= 16 {
+		suffix := name[len(name)-16:] // "-YYYYMMDD-HHMMSS"
+		if len(suffix) == 16 && suffix[0] == '-' && suffix[9] == '-' {
+			datePart := suffix[1:9]   // YYYYMMDD
+			timePart := suffix[10:16] // HHMMSS
+			if isDigits(datePart) && isDigits(timePart) {
+				prefix := name[:len(name)-16]
+				if prefix == "auto" {
+					return "auto"
+				}
+				return "archived"
+			}
+		}
+	}
+	return "current"
+}
+
+func isDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 // mysqlQuerier は MySQL の接続数を取得する関数型。テストで差し替え可能にするための内部 DI。
@@ -364,6 +398,7 @@ func (h *K8sBranchHandler) handleListSnapshots(w http.ResponseWriter, r *http.Re
 			Name:         s.Name,
 			CreatedAt:    s.CreatedAt,
 			DatabaseType: s.DatabaseType,
+			Role:         InferSnapshotRole(s.Name),
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -405,6 +440,93 @@ func (h *K8sBranchHandler) handleDeleteSnapshot(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *K8sBranchHandler) handleGC(w http.ResponseWriter, r *http.Request) {
+	if h.volumeProvider == nil {
+		writeError(w, http.StatusNotImplemented, "VolumeProvider not configured")
+		return
+	}
+	var body struct {
+		DBType        string `json:"db_type"`
+		KeepSnapshots int    `json:"keep_snapshots"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.KeepSnapshots <= 0 {
+		body.KeepSnapshots = 5
+	}
+
+	// 孤立クローン検出: ZFS クローン一覧と CR 一覧の差分
+	zfsClones, err := h.volumeProvider.ListClones(r.Context(), body.DBType)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var crList v1alpha1.DatabaseBranchList
+	_ = h.k8sClient.List(r.Context(), &crList, client.InNamespace(h.namespace))
+	crNames := make(map[string]struct{}, len(crList.Items))
+	for _, cr := range crList.Items {
+		crNames[cr.Name] = struct{}{}
+	}
+	var deletedClones []string
+	for _, name := range zfsClones {
+		if _, ok := crNames[name]; ok {
+			continue // CR が存在する → 孤立ではない
+		}
+		if err := h.volumeProvider.DeleteClone(r.Context(), body.DBType, name); err == nil {
+			deletedClones = append(deletedClones, name)
+		}
+	}
+
+	// アーカイブスナップショット GC
+	deletedSnaps, err := h.volumeProvider.GCSnapshots(r.Context(), body.DBType, body.KeepSnapshots)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, domain.GCReport{
+		DeletedOrphanClones: deletedClones,
+		DeletedSnapshots:    deletedSnaps,
+	})
+}
+
+func (h *K8sBranchHandler) handleResetDataset(w http.ResponseWriter, r *http.Request) {
+	if h.volumeProvider == nil {
+		writeError(w, http.StatusNotImplemented, "VolumeProvider not configured")
+		return
+	}
+	var body struct {
+		DBType string `json:"db_type"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	// 指定 db_type の DatabaseBranch CR を全削除
+	var crList v1alpha1.DatabaseBranchList
+	if err := h.k8sClient.List(r.Context(), &crList, client.InNamespace(h.namespace)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	deletedBranches := 0
+	for i := range crList.Items {
+		cr := &crList.Items[i]
+		if body.DBType != "" && cr.Spec.DatabaseType != body.DBType {
+			continue
+		}
+		if err := h.k8sClient.Delete(r.Context(), cr); err == nil {
+			deletedBranches++
+		}
+	}
+
+	if err := h.volumeProvider.ResetDataset(r.Context(), body.DBType); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted_branches": deletedBranches,
+		"message":          "ready for new data — take a fresh snapshot to start",
+	})
 }
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
@@ -455,6 +577,8 @@ func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	r.Get("/snapshots", h.handleListSnapshots)
 	r.Post("/snapshots", h.handleTakeSnapshot)
 	r.Delete("/snapshots/{name}", h.handleDeleteSnapshot)
+	r.Post("/snapshots/reset", h.handleResetDataset)
+	r.Post("/gc", h.handleGC)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
