@@ -586,6 +586,8 @@ func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	if len(hub) > 0 && hub[0] != nil {
 		r.Get("/ws", hub[0].ServeWS)
 	}
+	r.Get("/openapi.yaml", serveOpenAPISpec)
+	r.Get("/docs", serveSwaggerUI)
 	r.Get("/", serveK8sSPA)
 	r.Get("/assets/*", k8sStaticHandler().ServeHTTP)
 	r.Get("/favicon.svg", k8sStaticHandler().ServeHTTP)

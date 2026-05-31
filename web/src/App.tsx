@@ -989,6 +989,7 @@ export default function App() {
           </button>
         </nav>
         <div className="header-right">
+          <a className="api-docs-link" href="/docs" target="_blank" rel="noreferrer">API Docs</a>
           <div className="refresh-dot" />
           {lastUpdated && <span>Updated {relativeTime(lastUpdated.toISOString())}</span>}
         </div>

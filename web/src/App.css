@@ -102,6 +102,20 @@ body {
   white-space: nowrap;
 }
 
+.api-docs-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 3px 8px;
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.api-docs-link:hover {
+  background: var(--bg-card-hover);
+}
+
 .refresh-dot {
   width: 8px;
   height: 8px;

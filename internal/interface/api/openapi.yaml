@@ -1,0 +1,471 @@
+openapi: "3.0.3"
+info:
+  title: BranchDB API
+  description: |
+    BranchDB は ZFS スナップショット／クローンを使って開発用 DB を瞬時に複製する
+    Kubernetes Operator の REST API です。
+
+    **ベース URL**: `http://<host>:8080`
+  version: "0.1.0"
+  license:
+    name: MIT
+
+tags:
+  - name: branches
+    description: データベースブランチの CRUD
+  - name: snapshots
+    description: ZFS スナップショット管理
+  - name: stats
+    description: ステータス統計
+  - name: health
+    description: ヘルスチェック
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: ヘルスチェック
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /stats:
+    get:
+      tags: [stats]
+      summary: 全ブランチのフェーズ別集計
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+
+  /branches:
+    get:
+      tags: [branches]
+      summary: ブランチ一覧
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Branch"
+    post:
+      tags: [branches]
+      summary: ブランチ作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBranchRequest"
+      responses:
+        "202":
+          description: 作成受付（NodePort 確定まで非同期）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /branches/{name}:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      tags: [branches]
+      summary: ブランチ取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [branches]
+      summary: ブランチ削除
+      responses:
+        "204":
+          description: 削除完了
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /branches/{name}/pod:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      tags: [branches]
+      summary: ブランチの Pod ステータス取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PodInfo"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /branches/{name}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      tags: [branches]
+      summary: ブランチの DB メトリクス取得（接続数など）
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BranchMetrics"
+
+  /snapshots:
+    get:
+      tags: [snapshots]
+      summary: スナップショット一覧
+      parameters:
+        - name: db_type
+          in: query
+          description: "フィルタする DB 種別 (mysql / postgres)"
+          required: false
+          schema:
+            type: string
+            example: mysql
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Snapshot"
+        "501":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [snapshots]
+      summary: スナップショット取得（新規 or 上書き）
+      description: |
+        `overwrite: true` かつ依存クローン（ブランチ）がある場合は既存スナップショットを
+        `{name}-YYYYMMDD-HHMMSS` にリネームしてアーカイブし、同名の新スナップショットを作成します。
+        依存クローンがない場合は単純に上書きします。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TakeSnapshotRequest"
+      responses:
+        "200":
+          description: 作成完了
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  name:
+                    type: string
+                    example: base
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /snapshots/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+        example: base-20260531-150405
+    delete:
+      tags: [snapshots]
+      summary: スナップショット削除
+      parameters:
+        - name: db_type
+          in: query
+          description: "DB 種別 (mysql / postgres)"
+          required: false
+          schema:
+            type: string
+            example: mysql
+      responses:
+        "204":
+          description: 削除完了
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /snapshots/reset:
+    post:
+      tags: [snapshots]
+      summary: フルリフレッシュ（全ブランチ・スナップショット削除）
+      description: |
+        指定した `db_type` のすべての DatabaseBranch CR と ZFS スナップショット・クローンを削除します。
+        実行後は新しいデータをロードして `POST /snapshots` でスナップショットを取り直してください。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                db_type:
+                  type: string
+                  example: mysql
+      responses:
+        "200":
+          description: リセット完了
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_branches:
+                    type: integer
+                    example: 3
+                  message:
+                    type: string
+                    example: "ready for new data — take a fresh snapshot to start"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /gc:
+    post:
+      tags: [snapshots]
+      summary: ガベージコレクション（孤立クローン + 古いアーカイブスナップショット）
+      description: |
+        1. ZFS クローン一覧と DatabaseBranch CR 一覧を比較し、CR のない孤立クローンを削除
+        2. アーカイブスナップショット（`{name}-YYYYMMDD-HHMMSS` 形式）を `keep_snapshots` 件まで削減
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GCRequest"
+      responses:
+        "200":
+          description: GC 完了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GCReport"
+        "500":
+          $ref: "#/components/responses/Error"
+
+components:
+  parameters:
+    BranchName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      example: my-feature-branch
+
+  responses:
+    Error:
+      description: エラー
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+  schemas:
+    Branch:
+      type: object
+      properties:
+        name:
+          type: string
+          example: my-feature-branch
+        status:
+          type: string
+          enum: [Pending, Creating, Ready, Error, Deleting]
+          example: Ready
+        host:
+          type: string
+          description: NodePort ホスト（外部接続用）
+          example: 192.168.5.1
+        port:
+          type: integer
+          description: NodePort 番号
+          example: 30001
+        dsn:
+          type: string
+          description: 接続 DSN（MySQL: root@tcp(...)/）
+          example: "root@tcp(192.168.5.1:30001)/"
+        cluster_host:
+          type: string
+          description: クラスター内 Service ホスト
+        cluster_port:
+          type: integer
+          description: クラスター内 Service ポート
+        snapshot_ref:
+          type: string
+          description: クローン元のスナップショット名
+          example: base
+        ttl_hours:
+          type: integer
+          description: 有効期限（時間）。0 は無期限
+          example: 24
+        database_type:
+          type: string
+          enum: [mysql, postgres]
+          example: mysql
+        message:
+          type: string
+          description: エラー時のメッセージ
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    CreateBranchRequest:
+      type: object
+      required: [name, snapshot_ref]
+      properties:
+        name:
+          type: string
+          example: my-feature-branch
+        snapshot_ref:
+          type: string
+          description: クローン元スナップショット名（VolumeProvider 有効時は必須）
+          example: base
+        ttl_hours:
+          type: integer
+          description: 有効期限（時間）。省略で無期限
+          example: 24
+        database_type:
+          type: string
+          enum: [mysql, postgres]
+          example: mysql
+        database_version:
+          type: string
+          example: "8.0"
+
+    Stats:
+      type: object
+      properties:
+        total:
+          type: integer
+        ready:
+          type: integer
+        creating:
+          type: integer
+        error:
+          type: integer
+        pending:
+          type: integer
+        deleting:
+          type: integer
+
+    PodInfo:
+      type: object
+      properties:
+        phase:
+          type: string
+          example: Running
+        ready:
+          type: boolean
+        message:
+          type: string
+
+    BranchMetrics:
+      type: object
+      properties:
+        threads_connected:
+          type: integer
+          example: 2
+        available:
+          type: boolean
+          example: true
+        error:
+          type: string
+
+    Snapshot:
+      type: object
+      properties:
+        name:
+          type: string
+          example: base
+        created_at:
+          type: string
+          format: date-time
+        database_type:
+          type: string
+          example: mysql
+        role:
+          type: string
+          enum: [current, archived, auto]
+          description: |
+            - current: タイムスタンプなし（最新の有効スナップショット）
+            - archived: `{name}-YYYYMMDD-HHMMSS` 形式（上書き時に旧版を保持）
+            - auto: `auto-YYYYMMDD-HHMMSS` 形式（自動取得）
+
+    TakeSnapshotRequest:
+      type: object
+      properties:
+        db_type:
+          type: string
+          enum: [mysql, postgres]
+          example: mysql
+        name:
+          type: string
+          description: 省略時は `auto-YYYYMMDD-HHMMSS` が自動生成されます
+          example: base
+        overwrite:
+          type: boolean
+          description: true にすると同名スナップショットを上書きします
+          default: false
+
+    GCRequest:
+      type: object
+      properties:
+        db_type:
+          type: string
+          example: mysql
+        keep_snapshots:
+          type: integer
+          description: prefix ごとに保持するアーカイブスナップショット件数
+          default: 5
+          example: 5
+
+    GCReport:
+      type: object
+      properties:
+        deleted_orphan_clones:
+          type: array
+          items:
+            type: string
+          description: 削除した孤立クローン名
+        deleted_snapshots:
+          type: array
+          items:
+            type: string
+          description: GC で削除したアーカイブスナップショット名
