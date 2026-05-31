@@ -11,6 +11,7 @@ export interface Branch {
   cluster_port?: number
   snapshot_ref?: string
   ttl_hours?: number
+  database_type?: string
   created_at: string
   expires_at?: string
 }

@@ -72,6 +72,9 @@ type K8sSnapshotResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// mysqlQuerier は MySQL の接続数を取得する関数型。テストで差し替え可能にするための内部 DI。
+type mysqlQuerier func(ctx context.Context, clusterHost string) (threads int, err error)
+
 // K8sBranchHandler handles branch CRUD via DatabaseBranch CRs.
 // ExternalPort は NodePort として K8s が割り当てるため、ハンドラ側でポート管理は行わない。
 type K8sBranchHandler struct {
@@ -80,6 +83,7 @@ type K8sBranchHandler struct {
 	externalHost    string
 	namespace       string
 	portWaitTimeout time.Duration
+	mysqlQuerier    mysqlQuerier // nil = realMySQLQuerier を使用
 }
 
 // NewK8sBranchHandler creates a new K8sBranchHandler. Namespace defaults to "default".
@@ -110,10 +114,18 @@ func (h *K8sBranchHandler) WithVolumeProvider(vp domain.VolumeProvider) *K8sBran
 	return h
 }
 
+// WithMySQLQuerier overrides the MySQL metrics querier for testing.
+func (h *K8sBranchHandler) WithMySQLQuerier(q func(ctx context.Context, clusterHost string) (int, error)) *K8sBranchHandler {
+	h.mysqlQuerier = q
+	return h
+}
+
 type k8sCreateRequest struct {
-	Name        string `json:"name"`
-	SnapshotRef string `json:"snapshot_ref,omitempty"`
-	TTLHours    int    `json:"ttl_hours,omitempty"`
+	Name            string `json:"name"`
+	SnapshotRef     string `json:"snapshot_ref,omitempty"`
+	TTLHours        int    `json:"ttl_hours,omitempty"`
+	DatabaseType    string `json:"database_type,omitempty"`
+	DatabaseVersion string `json:"database_version,omitempty"`
 }
 
 func (h *K8sBranchHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +145,10 @@ func (h *K8sBranchHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 			Namespace: h.namespace,
 		},
 		Spec: v1alpha1.DatabaseBranchSpec{
-			SnapshotRef: req.SnapshotRef,
-			TTLHours:    req.TTLHours,
+			SnapshotRef:     req.SnapshotRef,
+			TTLHours:        req.TTLHours,
+			DatabaseType:    req.DatabaseType,
+			DatabaseVersion: req.DatabaseVersion,
 		},
 	}
 
@@ -295,38 +309,18 @@ func (h *K8sBranchHandler) handleGetMetrics(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	dsn := fmt.Sprintf("root@tcp(%s:3306)/", cr.Status.ClusterHost)
+	q := h.mysqlQuerier
+	if q == nil {
+		q = realMySQLQuerier
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	db, err := sql.Open("mysql", dsn)
+	threads, err := q(ctx, cr.Status.ClusterHost)
 	if err != nil {
 		writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: err.Error()})
 		return
 	}
-	defer db.Close()
-
-	rows, err := db.QueryContext(ctx, "SHOW STATUS LIKE 'Threads_connected'")
-	if err != nil {
-		writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	var varName, varValue string
-	if rows.Next() {
-		if err := rows.Scan(&varName, &varValue); err != nil {
-			writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: err.Error()})
-			return
-		}
-	}
-	if err := rows.Err(); err != nil {
-		writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: err.Error()})
-		return
-	}
-
-	threads := 0
-	fmt.Sscanf(varValue, "%d", &threads)
 	writeJSON(w, http.StatusOK, BranchMetrics{ThreadsConnected: threads, Available: true})
 }
 
@@ -336,7 +330,8 @@ func (h *K8sBranchHandler) handleListSnapshots(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	snaps, err := h.volumeProvider.ListSnapshots(r.Context())
+	dbType := r.URL.Query().Get("db_type")
+	snaps, err := h.volumeProvider.ListSnapshots(r.Context(), dbType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -358,7 +353,12 @@ func (h *K8sBranchHandler) handleTakeSnapshot(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.volumeProvider.TakeSnapshot(r.Context(), "auto"); err != nil {
+	var body struct {
+		DBType string `json:"db_type"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	if err := h.volumeProvider.TakeSnapshot(r.Context(), body.DBType, "auto"); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -397,9 +397,6 @@ func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchR
 
 // isNotFound checks if the error is a Kubernetes NotFound error.
 func isNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
 	return client.IgnoreNotFound(err) == nil
 }
 
@@ -427,4 +424,39 @@ func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	r.Get("/favicon.svg", k8sStaticHandler().ServeHTTP)
 	r.Get("/icons.svg", k8sStaticHandler().ServeHTTP)
 	return r
+}
+
+// realMySQLQuerier は MySQL に接続して Threads_connected を返す本番実装。
+func realMySQLQuerier(ctx context.Context, clusterHost string) (int, error) {
+	return queryMySQLThreads(ctx, "mysql", fmt.Sprintf("root@tcp(%s:3306)/", clusterHost))
+}
+
+// queryMySQLThreads は指定ドライバで MySQL に接続して Threads_connected を取得する。
+// driverName をパラメータとして受け取るため、テストでフェイクドライバを差し込める。
+func queryMySQLThreads(ctx context.Context, driverName, dsn string) (int, error) {
+	db, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "SHOW STATUS LIKE 'Threads_connected'")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var varName, varValue string
+	if rows.Next() {
+		if err := rows.Scan(&varName, &varValue); err != nil {
+			return 0, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var threads int
+	fmt.Sscanf(varValue, "%d", &threads)
+	return threads, nil
 }

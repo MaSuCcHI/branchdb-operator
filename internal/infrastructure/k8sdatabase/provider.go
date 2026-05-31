@@ -40,14 +40,15 @@ type dbConfig struct {
 	port         int32
 	dataDir      string
 	containerEnv []corev1.EnvVar
+	containerArgs []string // Pod Container.Args（entrypoint への追加引数）
 	readinessCmd []string
 	// needsPermFix が true のとき、NFS マウント後に busybox で chown を実行する initContainer を追加する。
 	needsPermFix bool
-	permFixUID   int64  // chown で設定する UID（needsPermFix=true のとき使用）
-	// mysqlConfig が非空のとき ConfigMap を作成し /etc/... にマウントする。
-	mysqlConfig     string // 設定ファイルの内容
-	mysqlConfigPath string // コンテナ内のマウント先ディレクトリ
-	mysqlConfigKey  string // ConfigMap のキー名
+	permFixUID   int64 // chown で設定する UID（needsPermFix=true のとき使用）
+	// extraConfig が非空のとき ConfigMap を作成しコンテナにマウントする。
+	extraConfig          string // 設定ファイルの内容
+	extraConfigMountPath string // コンテナ内のマウント先ディレクトリ
+	extraConfigKey       string // ConfigMap のキー名
 }
 
 // builtinConfigs はサポートするデータベース種別のデフォルト設定。
@@ -62,9 +63,9 @@ var builtinConfigs = map[string]dbConfig{
 		permFixUID:   999,
 		// innodb_flush_log_at_trx_commit=2: NFS の fsync レイテンシを隠蔽して実用速度を確保する。
 		// 開発・テスト環境専用。本番 OLTP では 1 を使用すること。
-		mysqlConfig:     "[mysqld]\ninnodb_flush_log_at_trx_commit=2\n",
-		mysqlConfigPath: "/etc/mysql/conf.d",
-		mysqlConfigKey:  "branchdb.cnf",
+		extraConfig:          "[mysqld]\ninnodb_flush_log_at_trx_commit=2\n",
+		extraConfigMountPath: "/etc/mysql/conf.d",
+		extraConfigKey:       "branchdb.cnf",
 	},
 	"postgres": {
 		defaultImage: "postgres:16",
@@ -74,6 +75,13 @@ var builtinConfigs = map[string]dbConfig{
 		readinessCmd: []string{"pg_isready", "-U", "postgres"},
 		needsPermFix: true,
 		permFixUID:   999,
+		// NFS 上での開発・テスト用に fsync を無効化してレイテンシを削減する。本番では使用しないこと。
+		// full_page_writes=off: NFS での WAL I/O を削減する。
+		containerArgs: []string{
+			"-c", "fsync=off",
+			"-c", "synchronous_commit=off",
+			"-c", "full_page_writes=off",
+		},
 	},
 	"redis": {
 		defaultImage: "redis:7",
@@ -121,7 +129,7 @@ func (p *Provider) Start(ctx context.Context, branchName string, vol domain.Volu
 	if err := p.createPVC(ctx, branchName); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create PVC: %w", err)
 	}
-	if cfg.mysqlConfig != "" {
+	if cfg.extraConfig != "" {
 		if err := p.createConfigMap(ctx, branchName, cfg); err != nil {
 			return domain.BranchEndpoint{}, fmt.Errorf("create ConfigMap: %w", err)
 		}
@@ -239,7 +247,7 @@ func (p *Provider) createPVC(ctx context.Context, branchName string) error {
 func (p *Provider) createConfigMap(ctx context.Context, branchName string, cfg dbConfig) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: cmName(branchName), Namespace: p.namespace},
-		Data:       map[string]string{cfg.mysqlConfigKey: cfg.mysqlConfig},
+		Data:       map[string]string{cfg.extraConfigKey: cfg.extraConfig},
 	}
 	err := p.client.Create(ctx, cm)
 	if errors.IsAlreadyExists(err) {
@@ -268,10 +276,10 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 		},
 	}
 
-	if cfg.mysqlConfig != "" {
+	if cfg.extraConfig != "" {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      cfgVolName,
-			MountPath: cfg.mysqlConfigPath,
+			MountPath: cfg.extraConfigMountPath,
 		})
 		volumes = append(volumes, corev1.Volume{
 			Name: cfgVolName,
@@ -288,6 +296,7 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 			{
 				Name:         "db",
 				Image:        image,
+				Args:         cfg.containerArgs,
 				Env:          cfg.containerEnv,
 				VolumeMounts: volumeMounts,
 				ReadinessProbe: &corev1.Probe{

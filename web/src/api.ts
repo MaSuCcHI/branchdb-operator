@@ -17,7 +17,7 @@ export const api = {
   branches: {
     list: () => request<Branch[]>('/branches'),
     get: (name: string) => request<Branch>(`/branches/${name}`),
-    create: (body: { name: string; snapshot_ref?: string; ttl_hours?: number }) =>
+    create: (body: { name: string; snapshot_ref?: string; ttl_hours?: number; database_type?: string }) =>
       request<Branch>('/branches', { method: 'POST', body: JSON.stringify(body) }),
     delete: (name: string) => request<void>(`/branches/${name}`, { method: 'DELETE' }),
     getPod: (name: string) => request<PodInfo>(`/branches/${name}/pod`),

@@ -80,7 +80,7 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Step 2: Create volume clone.
-	volumeInfo, err := r.VolumeProvider.CreateClone(ctx, branch.Spec.SnapshotRef, branch.Name)
+	volumeInfo, err := r.VolumeProvider.CreateClone(ctx, branch.Spec.DatabaseType, branch.Spec.SnapshotRef, branch.Name)
 	if err != nil {
 		return r.setError(ctx, branch, fmt.Errorf("create clone: %w", err))
 	}
@@ -130,7 +130,7 @@ func (r *DatabaseBranchReconciler) handleDeletion(ctx context.Context, branch *v
 	}
 
 	// Destroy volume clone.
-	if err := r.VolumeProvider.DeleteClone(ctx, branch.Name); err != nil {
+	if err := r.VolumeProvider.DeleteClone(ctx, branch.Spec.DatabaseType, branch.Name); err != nil {
 		return r.setError(ctx, branch, fmt.Errorf("delete clone: %w", err))
 	}
 

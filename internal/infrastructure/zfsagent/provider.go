@@ -42,13 +42,14 @@ func (p *Provider) WithHTTPClient(c *http.Client) *Provider {
 }
 
 // TakeSnapshot は ZFS Agent にスナップショット作成を要求する。
-func (p *Provider) TakeSnapshot(ctx context.Context, name string) error {
+func (p *Provider) TakeSnapshot(ctx context.Context, dbType, name string) error {
 	body, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
 		return fmt.Errorf("zfsagent: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/snapshots", bytes.NewReader(body))
+	url := p.baseURL + "/snapshots" + dbTypeQuery(dbType)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("zfsagent: create request: %w", err)
 	}
@@ -68,7 +69,7 @@ func (p *Provider) TakeSnapshot(ctx context.Context, name string) error {
 }
 
 // CreateClone は ZFS Agent にクローン作成を要求し、VolumeInfo を返す。
-func (p *Provider) CreateClone(ctx context.Context, snapshot, cloneName string) (domain.VolumeInfo, error) {
+func (p *Provider) CreateClone(ctx context.Context, dbType, snapshot, cloneName string) (domain.VolumeInfo, error) {
 	body, err := json.Marshal(map[string]string{
 		"snapshot": snapshot,
 		"name":     cloneName,
@@ -77,7 +78,7 @@ func (p *Provider) CreateClone(ctx context.Context, snapshot, cloneName string) 
 		return domain.VolumeInfo{}, fmt.Errorf("zfsagent: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/clones", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/clones"+dbTypeQuery(dbType), bytes.NewReader(body))
 	if err != nil {
 		return domain.VolumeInfo{}, fmt.Errorf("zfsagent: create request: %w", err)
 	}
@@ -112,8 +113,8 @@ func (p *Provider) CreateClone(ctx context.Context, snapshot, cloneName string) 
 }
 
 // DeleteClone は ZFS Agent にクローン削除を要求する。
-func (p *Provider) DeleteClone(ctx context.Context, cloneName string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, p.baseURL+"/clones/"+cloneName, nil)
+func (p *Provider) DeleteClone(ctx context.Context, dbType, cloneName string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, p.baseURL+"/clones/"+cloneName+dbTypeQuery(dbType), nil)
 	if err != nil {
 		return fmt.Errorf("zfsagent: create request: %w", err)
 	}
@@ -136,8 +137,8 @@ func (p *Provider) DeleteClone(ctx context.Context, cloneName string) error {
 }
 
 // ListSnapshots は ZFS Agent からスナップショット一覧を取得する。
-func (p *Provider) ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/snapshots", nil)
+func (p *Provider) ListSnapshots(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/snapshots"+dbTypeQuery(dbType), nil)
 	if err != nil {
 		return nil, fmt.Errorf("zfsagent: create request: %w", err)
 	}
@@ -173,4 +174,12 @@ func (p *Provider) ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, er
 		})
 	}
 	return snaps, nil
+}
+
+// dbTypeQuery は dbType が空でない場合に "?db_type=<dbType>" を返す。
+func dbTypeQuery(dbType string) string {
+	if dbType == "" {
+		return ""
+	}
+	return "?db_type=" + dbType
 }

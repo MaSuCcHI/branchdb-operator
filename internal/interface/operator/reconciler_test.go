@@ -26,23 +26,23 @@ type mockVolumeProvider struct {
 	deleteCloneFunc func(ctx context.Context, branchName string) error
 }
 
-func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _ string) error { return nil }
+func (m *mockVolumeProvider) TakeSnapshot(_ context.Context, _, _ string) error { return nil }
 
-func (m *mockVolumeProvider) CreateClone(ctx context.Context, snapshotName, branchName string) (domain.VolumeInfo, error) {
+func (m *mockVolumeProvider) CreateClone(ctx context.Context, _ string, snapshotName, branchName string) (domain.VolumeInfo, error) {
 	if m.createCloneFunc != nil {
 		return m.createCloneFunc(ctx, snapshotName, branchName)
 	}
 	return domain.VolumeInfo{NFSServer: "nfs.example.com", NFSPath: "/data/" + branchName}, nil
 }
 
-func (m *mockVolumeProvider) DeleteClone(ctx context.Context, branchName string) error {
+func (m *mockVolumeProvider) DeleteClone(ctx context.Context, _ string, branchName string) error {
 	if m.deleteCloneFunc != nil {
 		return m.deleteCloneFunc(ctx, branchName)
 	}
 	return nil
 }
 
-func (m *mockVolumeProvider) ListSnapshots(_ context.Context) ([]domain.SnapshotInfo, error) {
+func (m *mockVolumeProvider) ListSnapshots(_ context.Context, _ string) ([]domain.SnapshotInfo, error) {
 	return nil, nil
 }
 

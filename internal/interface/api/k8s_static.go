@@ -15,16 +15,11 @@ func k8sStaticHandler() http.Handler {
 }
 
 func serveK8sSPA(w http.ResponseWriter, _ *http.Request) {
-	// Try k8s.html first (Vite builds with the input filename as output).
-	// Fall back to index.html for the placeholder or any custom build.
-	for _, name := range []string{"k8s-dist/k8s.html", "k8s-dist/index.html"} {
-		data, err := k8sDistFS.ReadFile(name)
-		if err != nil {
-			continue
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(data)
+	data, err := k8sDistFS.ReadFile("k8s-dist/index.html")
+	if err != nil {
+		http.Error(w, "console not built (run make web-build)", http.StatusNotFound)
 		return
 	}
-	http.Error(w, "console not built (run make web-build-k8s)", http.StatusNotFound)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
 }

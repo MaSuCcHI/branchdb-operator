@@ -75,13 +75,14 @@ function StatCard({ label, value, variant }: { label: string; value: number; var
 
 interface CreateModalProps {
   onClose: () => void
-  onCreate: (name: string, snapshotRef: string, ttlHours: number) => Promise<void>
+  onCreate: (name: string, snapshotRef: string, ttlHours: number, dbType: string) => Promise<void>
 }
 
 function CreateModal({ onClose, onCreate }: CreateModalProps) {
   const [name, setName] = useState('')
   const [snapshotRef, setSnapshotRef] = useState('')
   const [ttlHours, setTtlHours] = useState(0)
+  const [dbType, setDbType] = useState('mysql')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const nameRef = useRef<HTMLInputElement>(null)
@@ -94,7 +95,7 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
     setLoading(true)
     setErr('')
     try {
-      await onCreate(name.trim(), snapshotRef.trim(), ttlHours)
+      await onCreate(name.trim(), snapshotRef.trim(), ttlHours, dbType)
       onClose()
     } catch (ex) {
       setErr(String(ex))
@@ -117,6 +118,14 @@ function CreateModal({ onClose, onCreate }: CreateModalProps) {
               placeholder="feature-login"
               autoComplete="off"
             />
+          </div>
+          <div className="form-field">
+            <label>Database Type</label>
+            <select value={dbType} onChange={e => setDbType(e.target.value)}>
+              <option value="mysql">MySQL</option>
+              <option value="postgres">PostgreSQL</option>
+              <option value="redis">Redis</option>
+            </select>
           </div>
           <div className="form-field">
             <label>Snapshot Ref</label>
@@ -312,7 +321,7 @@ interface BranchesTabProps {
   branches: Branch[]
   stats: Stats | null
   onRefresh: () => void
-  onCreate: (name: string, snapshotRef: string, ttlHours: number) => Promise<void>
+  onCreate: (name: string, snapshotRef: string, ttlHours: number, dbType: string) => Promise<void>
   onDelete: (name: string) => Promise<void>
 }
 
@@ -541,8 +550,13 @@ export default function App() {
     }
   }, [branches, loadBranches])
 
-  const handleCreate = async (name: string, snapshotRef: string, ttlHours: number) => {
-    await api.branches.create({ name, snapshot_ref: snapshotRef || undefined, ttl_hours: ttlHours || undefined })
+  const handleCreate = async (name: string, snapshotRef: string, ttlHours: number, dbType: string) => {
+    await api.branches.create({
+      name,
+      snapshot_ref: snapshotRef || undefined,
+      ttl_hours: ttlHours || undefined,
+      database_type: dbType || undefined,
+    })
     await loadBranches()
   }
 

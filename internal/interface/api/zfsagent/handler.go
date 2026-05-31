@@ -27,14 +27,23 @@ type AgentVolumeProvider interface {
 }
 
 // Handler は ZFS Agent の HTTP ハンドラ。
+// providers は dbType → AgentVolumeProvider のマップで、複数 dataset に対応する。
+// defaultType は db_type クエリパラメータが省略されたときに使用する dbType。
 type Handler struct {
-	provider AgentVolumeProvider
-	token    string
+	providers   map[string]AgentVolumeProvider
+	defaultType string
+	token       string
 }
 
 // NewHandler は Handler を生成する。
-func NewHandler(provider AgentVolumeProvider, token string) *Handler {
-	return &Handler{provider: provider, token: token}
+// providers の最初のキーが defaultType になる。
+func NewHandler(providers map[string]AgentVolumeProvider, token string) *Handler {
+	defaultType := ""
+	for k := range providers {
+		defaultType = k
+		break
+	}
+	return &Handler{providers: providers, defaultType: defaultType, token: token}
 }
 
 // NewRouter は ZFS Agent 用のルーターを返す。
@@ -53,6 +62,19 @@ func NewRouter(h *Handler) http.Handler {
 	r.Delete("/clones/{name}", h.handleDeleteClone)
 
 	return r
+}
+
+// pickProvider は ?db_type= クエリパラメータでプロバイダーを選択する。
+// パラメータが省略された場合はデフォルトプロバイダーを使用する。
+func (h *Handler) pickProvider(r *http.Request) AgentVolumeProvider {
+	dbType := r.URL.Query().Get("db_type")
+	if dbType == "" {
+		dbType = h.defaultType
+	}
+	if p, ok := h.providers[dbType]; ok {
+		return p
+	}
+	return h.providers[h.defaultType]
 }
 
 // authMiddleware は Bearer トークン認証を行う。
@@ -88,7 +110,7 @@ func (h *Handler) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := h.provider.TakeSnapshot(r.Context(), req.Name); err != nil {
+	if err := h.pickProvider(r).TakeSnapshot(r.Context(), req.Name); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -101,7 +123,7 @@ type snapshotResponse struct {
 }
 
 func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
-	snapshots, err := h.provider.ListSnapshots(r.Context())
+	snapshots, err := h.pickProvider(r).ListSnapshots(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -118,7 +140,7 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.provider.DeleteClone(r.Context(), name); err != nil {
+	if err := h.pickProvider(r).DeleteClone(r.Context(), name); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -164,7 +186,7 @@ func (h *Handler) handleCreateClone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	vol, err := h.provider.CreateClone(r.Context(), req.Snapshot, req.Name)
+	vol, err := h.pickProvider(r).CreateClone(r.Context(), req.Snapshot, req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -173,7 +195,7 @@ func (h *Handler) handleCreateClone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListClones(w http.ResponseWriter, r *http.Request) {
-	clones, err := h.provider.ListClones(r.Context())
+	clones, err := h.pickProvider(r).ListClones(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -187,7 +209,7 @@ func (h *Handler) handleListClones(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGetClone(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	vol, err := h.provider.GetClone(r.Context(), name)
+	vol, err := h.pickProvider(r).GetClone(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -201,7 +223,7 @@ func (h *Handler) handleGetClone(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteClone(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.provider.DeleteClone(r.Context(), name); err != nil {
+	if err := h.pickProvider(r).DeleteClone(r.Context(), name); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return

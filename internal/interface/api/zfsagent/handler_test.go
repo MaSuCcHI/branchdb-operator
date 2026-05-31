@@ -54,7 +54,7 @@ func (m *mockVolumeProvider) GetClone(ctx context.Context, cloneName string) (do
 const testToken = "secret-token"
 
 func newRouter(provider *mockVolumeProvider) http.Handler {
-	h := zfsagent.NewHandler(provider, testToken)
+	h := zfsagent.NewHandler(map[string]zfsagent.AgentVolumeProvider{"mysql": provider}, testToken)
 	return zfsagent.NewRouter(h)
 }
 
