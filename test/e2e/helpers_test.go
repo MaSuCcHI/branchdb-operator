@@ -98,3 +98,51 @@ func del(ctx context.Context, url string) error {
 func branchURL(name string) string {
 	return fmt.Sprintf("%s/branches/%s", apiURL(), name)
 }
+
+func snapshotURL(name string) string {
+	return fmt.Sprintf("%s/snapshots/%s", apiURL(), name)
+}
+
+// getList は JSON 配列を返すエンドポイント向けの GET ヘルパー。
+func getList(ctx context.Context, url string) ([]map[string]any, error) {
+	var lastErr error
+	for i := 0; i < 5; i++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		}
+		var out []map[string]any
+		return out, json.NewDecoder(resp.Body).Decode(&out)
+	}
+	return nil, lastErr
+}
+
+// listSnapshots は GET /snapshots?db_type=... を呼び出す。
+func listSnapshots(ctx context.Context, dbType string) ([]map[string]any, error) {
+	url := apiURL() + "/snapshots"
+	if dbType != "" {
+		url += "?db_type=" + dbType
+	}
+	return getList(ctx, url)
+}
+
+// findSnapshot はスナップショット一覧から name が一致するものを返す。
+func findSnapshot(snaps []map[string]any, name string) map[string]any {
+	for _, s := range snaps {
+		if n, _ := s["name"].(string); n == name {
+			return s
+		}
+	}
+	return nil
+}
