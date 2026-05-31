@@ -37,6 +37,39 @@ export interface BranchMetrics {
   error?: string
 }
 
+export interface PodResource {
+  name: string
+  branch: string
+  phase: string
+  ready: boolean
+  restarts: number
+  node?: string
+  message?: string
+  created_at: string
+}
+
+export interface PVCResource {
+  name: string
+  branch: string
+  status: string
+  capacity?: string
+  created_at: string
+}
+
+export interface ServiceResource {
+  name: string
+  branch: string
+  cluster_ip?: string
+  node_port?: number
+  created_at: string
+}
+
+export interface ClusterResources {
+  pods: PodResource[]
+  pvcs: PVCResource[]
+  services: ServiceResource[]
+}
+
 export interface Snapshot {
   name: string
   created_at: string

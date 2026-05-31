@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api'
-import type { Branch, Stats, Snapshot, PodInfo, BranchMetrics } from './types'
+import type { Branch, Stats, Snapshot, PodInfo, BranchMetrics, ClusterResources } from './types'
 import './App.css'
 
 // ── Utility ─────────────────────────────────────────────────────────────────
@@ -920,9 +920,118 @@ function SnapshotsTab() {
   )
 }
 
+// ── ResourcesTab ─────────────────────────────────────────────────────────────
+
+function ResourcesTab() {
+  const [resources, setResources] = useState<ClusterResources | null>(null)
+  const [err, setErr] = useState('')
+
+  const load = useCallback(() => {
+    api.resources.get()
+      .then(setResources)
+      .catch(e => setErr(String(e)))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const phaseClass = (phase: string) => {
+    const p = phase?.toLowerCase()
+    if (p === 'running') return 'phase-running'
+    if (p === 'pending') return 'phase-pending'
+    if (p === 'failed' || p === 'error') return 'phase-failed'
+    return ''
+  }
+
+  if (!resources) return <div className="empty-state"><p>{err || 'Loading...'}</p></div>
+
+  return (
+    <div className="resources-layout">
+      {err && <div className="error-banner">{err}</div>}
+
+      {/* Pods */}
+      <section className="resource-section">
+        <div className="resource-section-header">
+          <h3>Pods <span className="resource-count">{resources.pods.length}</span></h3>
+          <button className="btn btn-sm" onClick={load}>Refresh</button>
+        </div>
+        {resources.pods.length === 0 ? (
+          <div className="resource-empty">No branch pods</div>
+        ) : (
+          <table className="resource-table">
+            <thead><tr><th>Name</th><th>Branch</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Node</th><th>Age</th></tr></thead>
+            <tbody>
+              {resources.pods.map(p => (
+                <tr key={p.name}>
+                  <td className="mono">{p.name}</td>
+                  <td className="mono">{p.branch}</td>
+                  <td><span className={`resource-phase ${phaseClass(p.phase)}`}>{p.phase || '—'}</span></td>
+                  <td>{p.ready ? <span className="ready-dot">✓</span> : <span className="notready-dot">✗</span>}</td>
+                  <td>{p.restarts}</td>
+                  <td className="muted">{p.node || '—'}</td>
+                  <td className="muted">{relativeTime(p.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* PVCs */}
+      <section className="resource-section">
+        <div className="resource-section-header">
+          <h3>PersistentVolumeClaims <span className="resource-count">{resources.pvcs.length}</span></h3>
+        </div>
+        {resources.pvcs.length === 0 ? (
+          <div className="resource-empty">No branch PVCs</div>
+        ) : (
+          <table className="resource-table">
+            <thead><tr><th>Name</th><th>Branch</th><th>Status</th><th>Capacity</th><th>Age</th></tr></thead>
+            <tbody>
+              {resources.pvcs.map(p => (
+                <tr key={p.name}>
+                  <td className="mono">{p.name}</td>
+                  <td className="mono">{p.branch}</td>
+                  <td><span className={`resource-phase ${p.status === 'Bound' ? 'phase-running' : 'phase-pending'}`}>{p.status}</span></td>
+                  <td>{p.capacity || '—'}</td>
+                  <td className="muted">{relativeTime(p.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* Services */}
+      <section className="resource-section">
+        <div className="resource-section-header">
+          <h3>Services <span className="resource-count">{resources.services.length}</span></h3>
+        </div>
+        {resources.services.length === 0 ? (
+          <div className="resource-empty">No branch services</div>
+        ) : (
+          <table className="resource-table">
+            <thead><tr><th>Name</th><th>Branch</th><th>ClusterIP</th><th>NodePort</th><th>Age</th></tr></thead>
+            <tbody>
+              {resources.services.map(s => (
+                <tr key={s.name}>
+                  <td className="mono">{s.name}</td>
+                  <td className="mono">{s.branch}</td>
+                  <td className="mono muted">{s.cluster_ip || '—'}</td>
+                  <td>{s.node_port ? <span className="mono">{s.node_port}</span> : '—'}</td>
+                  <td className="muted">{relativeTime(s.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type Tab = 'branches' | 'snapshots'
+type Tab = 'branches' | 'snapshots' | 'resources'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('branches')
@@ -987,6 +1096,9 @@ export default function App() {
           <button className={tab === 'snapshots' ? 'active' : ''} onClick={() => setTab('snapshots')}>
             Snapshots
           </button>
+          <button className={tab === 'resources' ? 'active' : ''} onClick={() => setTab('resources')}>
+            Resources
+          </button>
         </nav>
         <div className="header-right">
           <div className="refresh-dot" />
@@ -1007,6 +1119,7 @@ export default function App() {
           />
         )}
         {tab === 'snapshots' && <SnapshotsTab />}
+        {tab === 'resources' && <ResourcesTab />}
       </main>
     </div>
   )

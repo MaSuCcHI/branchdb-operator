@@ -1429,3 +1429,74 @@ func TestK8sReset_ResetDatasetエラーのとき500を返す(t *testing.T) {
 		t.Errorf("got %d, want 500", w.Code)
 	}
 }
+
+func TestK8sListResources_ブランチラベルを持つリソースを返す(t *testing.T) {
+	scheme := newK8sTestSchemeWithCore()
+	now := metav1.Now()
+
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "branch-pod",
+			Namespace:         "default",
+			Labels:            map[string]string{"branchdb-branch": "feature-x"},
+			CreationTimestamp: now,
+		},
+		Spec: corev1.PodSpec{NodeName: "node-1"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Ready: true, RestartCount: 2},
+			},
+		},
+	}
+	pvc := corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "branch-pvc",
+			Namespace:         "default",
+			Labels:            map[string]string{"branchdb-branch": "feature-x"},
+			CreationTimestamp: now,
+		},
+		Status: corev1.PersistentVolumeClaimStatus{
+			Phase: corev1.ClaimBound,
+		},
+	}
+	svc := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "branch-svc",
+			Namespace:         "default",
+			Labels:            map[string]string{"branchdb-branch": "feature-x"},
+			CreationTimestamp: now,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.0.0.1",
+			Ports:     []corev1.ServicePort{{NodePort: 31234}},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&pod, &pvc, &svc).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com")
+	router := api.NewK8sRouter(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/resources", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	pods, _ := resp["pods"].([]any)
+	if len(pods) != 1 {
+		t.Errorf("pods: got %d, want 1", len(pods))
+	}
+	pvcs, _ := resp["pvcs"].([]any)
+	if len(pvcs) != 1 {
+		t.Errorf("pvcs: got %d, want 1", len(pvcs))
+	}
+	services, _ := resp["services"].([]any)
+	if len(services) != 1 {
+		t.Errorf("services: got %d, want 1", len(services))
+	}
+}

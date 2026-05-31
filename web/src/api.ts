@@ -1,4 +1,4 @@
-import type { Branch, Stats, PodInfo, BranchMetrics, Snapshot } from './types'
+import type { Branch, Stats, PodInfo, BranchMetrics, Snapshot, ClusterResources } from './types'
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -25,6 +25,9 @@ export const api = {
   },
   stats: {
     get: () => request<Stats>('/stats'),
+  },
+  resources: {
+    get: () => request<ClusterResources>('/resources'),
   },
   snapshots: {
     list: (dbType?: string) => request<Snapshot[]>(`/snapshots${dbType ? `?db_type=${encodeURIComponent(dbType)}` : ''}`),
