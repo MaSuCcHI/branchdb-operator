@@ -33,10 +33,22 @@ var _ zfsagent.AgentVolumeProvider = (*AgentProvider)(nil)
 
 // TakeSnapshot はスナップショットを作成する。
 // overwrite が true の場合は既存のスナップショットを削除してから作成する。
+// 依存クローン（ブランチ）が存在する場合は削除できないため明確なエラーを返す。
 func (p *AgentProvider) TakeSnapshot(ctx context.Context, name string, overwrite bool) error {
 	zfsName := fmt.Sprintf("%s@%s", p.dataset, name)
 	if overwrite {
-		_ = run(ctx, "zfs", "destroy", zfsName) // 存在しない場合はエラーを無視
+		out, err := exec.CommandContext(ctx, "zfs", "destroy", zfsName).CombinedOutput()
+		if err != nil {
+			outStr := strings.TrimSpace(string(out))
+			switch {
+			case strings.Contains(outStr, "dataset does not exist"):
+				// スナップショットが存在しない → そのまま新規作成
+			case strings.Contains(outStr, "has dependent clones"):
+				return fmt.Errorf("snapshot %q has dependent clones (delete all branches using this snapshot first)", name)
+			default:
+				return fmt.Errorf("zfs destroy snapshot: %w (output: %s)", err, outStr)
+			}
+		}
 	}
 	return run(ctx, "zfs", "snapshot", zfsName)
 }

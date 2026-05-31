@@ -63,6 +63,12 @@ func (p *Provider) TakeSnapshot(ctx context.Context, dbType, name string, overwr
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
+		var errBody struct {
+			Error string `json:"error"`
+		}
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
+			return fmt.Errorf("%s", errBody.Error)
+		}
 		return fmt.Errorf("zfsagent: TakeSnapshot: unexpected status %d", resp.StatusCode)
 	}
 	return nil
