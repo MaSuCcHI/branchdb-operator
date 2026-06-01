@@ -18,10 +18,10 @@ jobs:
       matrix:
         include:
           - name: operator
-            image: ghcr.io/masucci/branchdb-operator
+            image: ghcr.io/masucchi/branchdb-operator
             dockerfile: Dockerfile.operator
           - name: branchdb
-            image: ghcr.io/masucci/branchdb
+            image: ghcr.io/masucchi/branchdb
             dockerfile: Dockerfile.branchdb
 
     steps:
