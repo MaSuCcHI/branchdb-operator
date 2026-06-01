@@ -3,6 +3,7 @@
 [![CI](https://github.com/MaSuCcHI/branchdb-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/MaSuCcHI/branchdb-operator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/branch-db)](https://artifacthub.io/packages/search?repo=branch-db)
 
 **Kubernetes operator that gives every pull request its own database branch in seconds.**
 
