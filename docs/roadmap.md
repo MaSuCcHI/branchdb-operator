@@ -88,12 +88,13 @@ spec:
 
 ### Helm リポジトリ
 
-**現状:** Helm チャートはリポジトリ内のローカルパスからのみインストールできます。
+**現状:** タグ push（`v*.*.*`）時に Helm チャートを OCI アーティファクトとして GHCR へ自動公開しています。
 
-**計画:**
-- GitHub Pages で Helm リポジトリを公開
-- `helm repo add branchdb https://masucchi.github.io/branchdb-operator`
-- GitHub Actions でのコンテナイメージ自動ビルド・GHCR へのプッシュ
+```bash
+helm install branchdb oci://ghcr.io/masucchi/charts/branchdb --version <version>
+```
+
+ローカルパス `deploy/helm/branchdb` からのインストールも引き続き可能です。
 
 ---
 

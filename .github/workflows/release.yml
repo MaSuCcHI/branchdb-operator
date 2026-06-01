@@ -63,6 +63,33 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
+  publish-chart:
+    name: Publish Helm chart (OCI)
+    runs-on: ubuntu-latest
+    needs: build-push
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package and push chart
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          helm package deploy/helm/branchdb \
+            --version "${VERSION}" \
+            --app-version "${VERSION}"
+          helm push "branchdb-${VERSION}.tgz" oci://ghcr.io/masucchi/charts
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest

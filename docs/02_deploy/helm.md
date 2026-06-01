@@ -4,8 +4,11 @@ BranchDB の Helm チャート `deploy/helm/branchdb` は、CRD・Operator・API
 
 ## インストール
 
+チャートは OCI レジストリ（GitHub Packages）で公開しています。
+
 ```bash
-helm upgrade --install branchdb deploy/helm/branchdb \
+helm upgrade --install branchdb oci://ghcr.io/masucchi/charts/branchdb \
+  --version <version> \
   --namespace branchdb-system \
   --create-namespace \
   --set installCRDs=true \
@@ -14,13 +17,24 @@ helm upgrade --install branchdb deploy/helm/branchdb \
   --set externalHost=<node-ip-or-lb>
 ```
 
+> `--version` を省略すると最新の安定版が使われます。利用可能なバージョンは
+> [Packages](https://github.com/MaSuCcHI/branchdb-operator/pkgs/container/charts%2Fbranchdb) を参照してください。
+
 設定ファイルを使う場合（推奨）：
 
 ```bash
-helm upgrade --install branchdb deploy/helm/branchdb \
+helm upgrade --install branchdb oci://ghcr.io/masucchi/charts/branchdb \
+  --version <version> \
   --namespace branchdb-system \
   --create-namespace \
   -f my-values.yaml
+```
+
+ローカルのソースツリーから直接インストールすることもできます：
+
+```bash
+helm upgrade --install branchdb deploy/helm/branchdb \
+  --namespace branchdb-system --create-namespace -f my-values.yaml
 ```
 
 ---
