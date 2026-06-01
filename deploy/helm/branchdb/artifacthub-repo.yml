@@ -3,7 +3,7 @@
 # に artifacthub-repo メディアタイプとして push し、Artifact Hub に所有権を証明する。
 #   oras push ghcr.io/masucchi/charts/branchdb:artifacthub.io \
 #     artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-repositoryID: d5febc0f-a121-47f2-86e8-032ddf95079e
+repositoryID: a7b05b68-550d-4f36-a469-207ab360f910
 owners:
   - name: keisuke
     email: dev.k.masuda@gmail.com
