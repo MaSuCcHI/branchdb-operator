@@ -3,7 +3,7 @@ name: branchdb
 description: BranchDB — Kubernetes上でPRごとにMySQL DBブランチをZFSクローンから払い出すOperator+APIサーバー
 type: application
 version: 0.2.0
-appVersion: "0.2.0"
+appVersion: "0.1.1"
 keywords:
   - mysql
   - zfs

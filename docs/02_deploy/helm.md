@@ -43,7 +43,7 @@ helm upgrade --install branchdb deploy/helm/branchdb \
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
 | `replicaCount` | `1` | Operator の Pod 数。リーダー選出が有効な場合は複数レプリカも可。|
-| `image.repository` | `ghcr.io/masucci/branchdb-operator` | Operator コンテナイメージ |
+| `image.repository` | `ghcr.io/masucchi/branchdb-operator` | Operator コンテナイメージ |
 | `image.tag` | `""` | イメージタグ（空の場合は `Chart.appVersion`）|
 | `image.pullPolicy` | `IfNotPresent` | イメージプルポリシー |
 | `imagePullSecrets` | `[]` | プライベートレジストリ用 Secret 名のリスト |
@@ -149,7 +149,7 @@ serviceAccount:
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
 | `apiServer.enabled` | `true` | API サーバーを有効化するか |
-| `apiServer.image.repository` | `ghcr.io/masucci/branchdb` | API サーバーイメージ |
+| `apiServer.image.repository` | `ghcr.io/masucchi/branchdb` | API サーバーイメージ |
 | `apiServer.image.tag` | `""` | イメージタグ（空の場合は `Chart.appVersion`）|
 | `apiServer.image.pullPolicy` | `IfNotPresent` | イメージプルポリシー |
 | `apiServer.replicaCount` | `1` | レプリカ数 |

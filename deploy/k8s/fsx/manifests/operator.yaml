@@ -39,7 +39,7 @@ spec:
       # serviceAccountName に対して IAM ロールを付与してください。
       containers:
         - name: operator
-          image: ghcr.io/branchdb/branchdb-operator:latest
+          image: ghcr.io/masucchi/branchdb-operator:latest
           imagePullPolicy: Always
           env:
             - name: ZFSDB_EXTERNAL_HOST

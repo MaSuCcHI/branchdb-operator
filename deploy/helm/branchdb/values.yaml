@@ -9,7 +9,7 @@ installCRDs: true
 replicaCount: 1
 
 image:
-  repository: ghcr.io/masucci/branchdb-operator
+  repository: ghcr.io/masucchi/branchdb-operator
   tag: ""   # 省略時は Chart.appVersion を使用
   pullPolicy: IfNotPresent
 
@@ -95,7 +95,7 @@ extraEnv: []
 apiServer:
   enabled: true
   image:
-    repository: ghcr.io/masucci/branchdb
+    repository: ghcr.io/masucchi/branchdb
     tag: ""   # 省略時は Chart.appVersion を使用
     pullPolicy: IfNotPresent
   replicaCount: 1

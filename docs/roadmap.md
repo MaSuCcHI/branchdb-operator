@@ -92,7 +92,7 @@ spec:
 
 **計画:**
 - GitHub Pages で Helm リポジトリを公開
-- `helm repo add branchdb https://masucci.github.io/branchdb-operator`
+- `helm repo add branchdb https://masucchi.github.io/branchdb-operator`
 - GitHub Actions でのコンテナイメージ自動ビルド・GHCR へのプッシュ
 
 ---
