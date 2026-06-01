@@ -15,7 +15,7 @@ sources:
   - https://github.com/MaSuCcHI/branchdb-operator
 maintainers:
   - name: keisuke
-    email: keiske.masuda@gmail.com
+    email: dev.k.masuda@gmail.com
 annotations:
   artifacthub.io/category: database
   artifacthub.io/license: MIT
@@ -27,4 +27,4 @@ annotations:
       url: https://github.com/MaSuCcHI/branchdb-operator/tree/main/docs
   artifacthub.io/maintainers: |
     - name: keisuke
-      email: keiske.masuda@gmail.com
+      email: dev.k.masuda@gmail.com
