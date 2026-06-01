@@ -15,3 +15,16 @@ sources:
   - https://github.com/MaSuCcHI/branchdb-operator
 maintainers:
   - name: keisuke
+    email: keiske.masuda@gmail.com
+annotations:
+  artifacthub.io/category: database
+  artifacthub.io/license: MIT
+  artifacthub.io/operator: "true"
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/MaSuCcHI/branchdb-operator
+    - name: documentation
+      url: https://github.com/MaSuCcHI/branchdb-operator/tree/main/docs
+  artifacthub.io/maintainers: |
+    - name: keisuke
+      email: keiske.masuda@gmail.com
