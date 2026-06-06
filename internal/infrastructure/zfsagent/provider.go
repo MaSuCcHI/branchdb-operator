@@ -262,7 +262,9 @@ func (p *Provider) GCSnapshots(ctx context.Context, dbType string, keepCount int
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var errBody struct{ Error string `json:"error"` }
+		var errBody struct {
+			Error string `json:"error"`
+		}
 		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
 			return nil, fmt.Errorf("%s", errBody.Error)
 		}
@@ -293,7 +295,9 @@ func (p *Provider) ResetDataset(ctx context.Context, dbType string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var errBody struct{ Error string `json:"error"` }
+		var errBody struct {
+			Error string `json:"error"`
+		}
 		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
 			return fmt.Errorf("%s", errBody.Error)
 		}

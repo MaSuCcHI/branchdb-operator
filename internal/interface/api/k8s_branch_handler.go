@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/go-chi/chi/v5"
 	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
 	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+	"github.com/go-chi/chi/v5"
+	_ "github.com/go-sql-driver/mysql"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -528,7 +528,6 @@ func (h *K8sBranchHandler) handleResetDataset(w http.ResponseWriter, r *http.Req
 		"message":          "ready for new data — take a fresh snapshot to start",
 	})
 }
-
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
 	resp := BranchResponse{
