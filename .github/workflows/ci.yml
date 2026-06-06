@@ -1,17 +1,25 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   go:
     name: Go
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
           cache: true
@@ -28,8 +36,21 @@ jobs:
             exit 1
           fi
 
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: test
-        run: go test ./internal/... ./cmd/... -count=1 -race
+        run: go test ./internal/... ./cmd/... -count=1 -race -coverprofile=coverage.out
+        env:
+          CGO_ENABLED: 1
+
+      - name: coverage-check
+        run: |
+          total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { if (t+0 < 95) { print "Coverage " t "% is below 95% threshold"; exit 1 } }'
 
       - name: build
         run: go build ./...
@@ -37,18 +58,24 @@ jobs:
   web:
     name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
+
+      - name: audit
+        run: npm audit --audit-level=high
 
       - run: npm run build

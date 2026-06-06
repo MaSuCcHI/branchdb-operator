@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/MaSuCcHI/branchdb-operator/internal/interface/api"
+	"github.com/gorilla/websocket"
 )
 
 func TestWSHub_Publishはクライアントにイベントをブロードキャストする(t *testing.T) {

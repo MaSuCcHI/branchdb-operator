@@ -108,11 +108,11 @@ func newReconciler(scheme *runtime.Scheme, objs []runtime.Object, volumeProvider
 		WithStatusSubresource(&v1alpha1.DatabaseBranch{}).
 		Build()
 	return &operator.DatabaseBranchReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		VolumeProvider: volumeProvider,
-		DatabaseProvider:  dbProvider,
-		ExternalHost:   "branchdb.example.com",
+		Client:           fakeClient,
+		Scheme:           scheme,
+		VolumeProvider:   volumeProvider,
+		DatabaseProvider: dbProvider,
+		ExternalHost:     "branchdb.example.com",
 	}
 }
 
@@ -450,11 +450,11 @@ func newReconcilerWithInterceptor(scheme *runtime.Scheme, objs []runtime.Object,
 		WithInterceptorFuncs(funcs).
 		Build()
 	return &operator.DatabaseBranchReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		VolumeProvider: volumeProvider,
-		DatabaseProvider:  dbProvider,
-		ExternalHost:   "branchdb.example.com",
+		Client:           fakeClient,
+		Scheme:           scheme,
+		VolumeProvider:   volumeProvider,
+		DatabaseProvider: dbProvider,
+		ExternalHost:     "branchdb.example.com",
 	}
 }
 

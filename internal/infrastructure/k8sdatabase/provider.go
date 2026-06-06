@@ -36,12 +36,12 @@ var nfsMountOptions = []string{
 
 // dbConfig はデータベース種別ごとの設定を保持する。
 type dbConfig struct {
-	defaultImage string
-	port         int32
-	dataDir      string
-	containerEnv []corev1.EnvVar
+	defaultImage  string
+	port          int32
+	dataDir       string
+	containerEnv  []corev1.EnvVar
 	containerArgs []string // Pod Container.Args（entrypoint への追加引数）
-	readinessCmd []string
+	readinessCmd  []string
 	// needsPermFix が true のとき、NFS マウント後に busybox で chown を実行する initContainer を追加する。
 	needsPermFix bool
 	permFixUID   int64 // chown で設定する UID（needsPermFix=true のとき使用）
@@ -95,8 +95,8 @@ var builtinConfigs = map[string]dbConfig{
 // Provider は BranchDatabaseProvider interface を実装する。
 // K8s API で Pod + PersistentVolume + PersistentVolumeClaim + Service を作成する。
 type Provider struct {
-	client       client.Client
-	namespace    string
+	client         client.Client
+	namespace      string
 	imageOverrides map[string]string // dbType -> image override（空文字列はデフォルトを使用）
 }
 
@@ -196,6 +196,7 @@ func baseImageName(image string) string {
 
 func pvName(branchName string) string  { return fmt.Sprintf("branchdb-pv-%s", branchName) }
 func pvcName(branchName string) string { return fmt.Sprintf("branchdb-pvc-%s", branchName) }
+
 // podName はブランチ名から Pod 名を生成する。DB 種別に関わらず一意な名前を使用する。
 func podName(branchName string) string { return fmt.Sprintf("branchdb-db-%s", branchName) }
 func cmName(branchName string) string  { return fmt.Sprintf("branchdb-cfg-%s", branchName) }
@@ -316,9 +317,9 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 		uid := cfg.permFixUID
 		spec.InitContainers = []corev1.Container{
 			{
-				Name:    "fix-permissions",
-				Image:   "busybox:1.36",
-				Command: []string{"sh", "-c", fmt.Sprintf("chown -R %d:%d %s", uid, uid, cfg.dataDir)},
+				Name:            "fix-permissions",
+				Image:           "busybox:1.36",
+				Command:         []string{"sh", "-c", fmt.Sprintf("chown -R %d:%d %s", uid, uid, cfg.dataDir)},
 				SecurityContext: &corev1.SecurityContext{RunAsUser: &rootUID},
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: dataVolName, MountPath: cfg.dataDir},

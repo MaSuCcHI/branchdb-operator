@@ -22,8 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
 	"github.com/MaSuCcHI/branchdb-operator/internal/infrastructure/zfsagent"

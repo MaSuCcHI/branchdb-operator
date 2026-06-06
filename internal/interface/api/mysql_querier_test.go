@@ -26,14 +26,14 @@ func (d *fakeDriver) Open(_ string) (driver.Conn, error) { return &fakeConn{rows
 func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 	return &fakeStmt{rows: c.rows}, nil
 }
-func (c *fakeConn) Close() error               { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error)  { return &fakeTx{}, nil }
-func (t *fakeTx) Commit() error                { return nil }
-func (t *fakeTx) Rollback() error              { return nil }
+func (c *fakeConn) Close() error              { return nil }
+func (c *fakeConn) Begin() (driver.Tx, error) { return &fakeTx{}, nil }
+func (t *fakeTx) Commit() error               { return nil }
+func (t *fakeTx) Rollback() error             { return nil }
 
-func (s *fakeStmt) Close() error                                        { return nil }
-func (s *fakeStmt) NumInput() int                                       { return 0 }
-func (s *fakeStmt) Exec(_ []driver.Value) (driver.Result, error)        { return nil, nil }
+func (s *fakeStmt) Close() error                                 { return nil }
+func (s *fakeStmt) NumInput() int                                { return 0 }
+func (s *fakeStmt) Exec(_ []driver.Value) (driver.Result, error) { return nil, nil }
 func (s *fakeStmt) Query(_ []driver.Value) (driver.Rows, error) {
 	return &fakeRows{rows: s.rows}, nil
 }

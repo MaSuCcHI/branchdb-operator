@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	defaultAPIURL    = "http://localhost:8080"
-	defaultSnapshot  = "base"
-	defaultTimeout   = 3 * time.Minute
-	pollInterval     = 3 * time.Second
+	defaultAPIURL   = "http://localhost:8080"
+	defaultSnapshot = "base"
+	defaultTimeout  = 3 * time.Minute
+	pollInterval    = 3 * time.Second
 )
 
 func apiURL() string {
