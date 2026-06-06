@@ -154,3 +154,15 @@ func TestBuildProviders_Empty(t *testing.T) {
 		t.Errorf("expected empty map, got %d entries", len(providers))
 	}
 }
+
+func TestRun_EmptyToken_ReturnsError(t *testing.T) {
+	os.Unsetenv("ZFSAGENT_TOKEN")
+	os.Unsetenv("ZFSAGENT_DATASETS")
+	os.Unsetenv("ZFSAGENT_POOL")
+	os.Unsetenv("ZFSAGENT_DATASET")
+
+	err := run()
+	if err == nil {
+		t.Fatal("expected error when ZFSAGENT_TOKEN is empty")
+	}
+}
