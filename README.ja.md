@@ -33,6 +33,9 @@ git push origin feature/payment-v2
 
 ## クイックスタート
 
+> **まず Mac で試したい方へ**
+> [ローカル開発環境ガイド（macOS + Colima）](docs/01_getting-started/local-dev-colima.md) — 実ディスクもクラウドも不要で動作確認できます。
+
 ### 前提条件
 
 - Kubernetes クラスター（k3s / EKS / GKE など）

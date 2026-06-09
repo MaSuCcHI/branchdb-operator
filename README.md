@@ -34,6 +34,9 @@ git push origin feature/payment-v2
 
 ## Quick Start
 
+> **Want to try it on your Mac right now?**
+> See [Local Development Guide (macOS + Colima)](docs/01_getting-started/local-dev-colima.en.md) — no real disk or cloud account required.
+
 ### Prerequisites
 
 - Kubernetes cluster (k3s, EKS, GKE, …)
