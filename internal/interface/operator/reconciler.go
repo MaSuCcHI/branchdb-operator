@@ -68,7 +68,14 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Skip if already in terminal / in-progress state.
 	if branch.Status.Phase == v1alpha1.BranchPhaseReady {
-		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		requeue := requeueInterval
+		if branch.Status.ExpiresAt != nil {
+			remaining := time.Until(branch.Status.ExpiresAt.Time)
+			if remaining > 0 && remaining < requeue {
+				requeue = remaining
+			}
+		}
+		return ctrl.Result{RequeueAfter: requeue}, nil
 	}
 
 	// --- Creation flow ---
@@ -86,7 +93,20 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Step 3: Start database. NodePort は Provider が K8s に割り当てさせる。
-	dbInfo, err := r.DatabaseProvider.Start(ctx, branch.Name, volumeInfo, branch.Spec.DatabaseType, branch.Spec.DatabaseVersion)
+	ownerRef := &domain.OwnerRef{
+		APIVersion: branch.APIVersion,
+		Kind:       branch.Kind,
+		Name:       branch.Name,
+		UID:        string(branch.UID),
+	}
+	// APIVersion / Kind が空の場合（デフォルト値）は補完する
+	if ownerRef.APIVersion == "" {
+		ownerRef.APIVersion = "branchdb.io/v1alpha1"
+	}
+	if ownerRef.Kind == "" {
+		ownerRef.Kind = "DatabaseBranch"
+	}
+	dbInfo, err := r.DatabaseProvider.Start(ctx, branch.Name, volumeInfo, branch.Spec.DatabaseType, branch.Spec.DatabaseVersion, ownerRef)
 	if err != nil {
 		return r.setError(ctx, branch, fmt.Errorf("start database: %w", err))
 	}

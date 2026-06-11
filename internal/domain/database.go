@@ -5,13 +5,23 @@ import (
 	"fmt"
 )
 
+// OwnerRef は K8s リソースの OwnerReference を設定するための情報を保持する。
+// クリーンアーキテクチャの原則に従い、domain 層は k8s.io パッケージに依存しない。
+type OwnerRef struct {
+	APIVersion string
+	Kind       string
+	Name       string
+	UID        string // k8s types.UID は string 型のエイリアス
+}
+
 // BranchDatabaseProvider はブランチデータベースの起動/停止の抽象インターフェース。
 // MySQL・PostgreSQL・Redis など複数のデータベースエンジンに対応する。
 type BranchDatabaseProvider interface {
 	// Start はブランチ用データベースを起動し接続情報を返す。
 	// dbType: "mysql" / "postgres" / "redis"（空文字列はデフォルト "mysql" として扱う）
 	// dbVersion: イメージタグ上書き（空文字列はデフォルトバージョンを使用）
-	Start(ctx context.Context, branch string, vol VolumeInfo, dbType, dbVersion string) (BranchEndpoint, error)
+	// owner: OwnerReference の設定情報（nil の場合は設定しない）
+	Start(ctx context.Context, branch string, vol VolumeInfo, dbType, dbVersion string, owner *OwnerRef) (BranchEndpoint, error)
 	Stop(ctx context.Context, branch string) error
 }
 

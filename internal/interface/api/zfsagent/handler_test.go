@@ -629,6 +629,55 @@ func TestHandler_GCは200と削除リストを返す(t *testing.T) {
 	}
 }
 
+func TestHandler_マルチプロバイダー構成でdb_type省略時に400を返す(t *testing.T) {
+	provider1 := &mockVolumeProvider{
+		listSnapshotsFunc: func(ctx context.Context) ([]domain.SnapshotInfo, error) {
+			return nil, nil
+		},
+	}
+	provider2 := &mockVolumeProvider{
+		listSnapshotsFunc: func(ctx context.Context) ([]domain.SnapshotInfo, error) {
+			return nil, nil
+		},
+	}
+	h := zfsagent.NewHandler(map[string]zfsagent.AgentVolumeProvider{
+		"mysql":    provider1,
+		"postgres": provider2,
+	}, testToken)
+	router := zfsagent.NewRouter(h)
+
+	req := authorizedRequest(http.MethodGet, "/snapshots", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("got status %d, want 400 when db_type is omitted with multiple providers", w.Code)
+	}
+}
+
+func TestHandler_シングルプロバイダー構成でdb_type省略時にデフォルトを使う(t *testing.T) {
+	called := false
+	provider := &mockVolumeProvider{
+		listSnapshotsFunc: func(ctx context.Context) ([]domain.SnapshotInfo, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	h := zfsagent.NewHandler(map[string]zfsagent.AgentVolumeProvider{"mysql": provider}, testToken)
+	router := zfsagent.NewRouter(h)
+
+	req := authorizedRequest(http.MethodGet, "/snapshots", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200 for single provider with no db_type", w.Code)
+	}
+	if !called {
+		t.Error("expected single provider to be called as default")
+	}
+}
+
 func TestHandler_Resetは200を返す(t *testing.T) {
 	called := false
 	provider := &mockVolumeProvider{
@@ -679,4 +728,54 @@ func TestHandler_ResetでProviderエラーのとき500を返す(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("got %d, want 500", w.Code)
 	}
+}
+
+// --- 不明なdb_type のテスト（pickProvider の unknown-db_type ブランチをカバー） ---
+
+func TestHandler_不明なdb_typeで各エンドポイントが400を返す(t *testing.T) {
+	provider := &mockVolumeProvider{
+		takeSnapshotFunc: func(_ context.Context, _ string, _ bool) error { return nil },
+		deleteCloneFunc:  func(_ context.Context, _ string) error { return nil },
+		createCloneFunc: func(_ context.Context, _, _ string) (domain.VolumeInfo, error) {
+			return domain.VolumeInfo{}, nil
+		},
+		listClonesFunc: func(_ context.Context) ([]domain.VolumeInfo, error) { return nil, nil },
+		getCloneFunc: func(_ context.Context, _ string) (domain.VolumeInfo, error) {
+			return domain.VolumeInfo{}, nil
+		},
+		gcSnapshotsFunc:  func(_ context.Context, _ int) ([]string, error) { return nil, nil },
+		resetDatasetFunc: func(_ context.Context) error { return nil },
+	}
+	router := newRouter(provider)
+
+	endpoints := []struct {
+		method string
+		path   string
+		body   []byte
+	}{
+		{http.MethodPost, "/snapshots?db_type=unknown", mustMarshal(map[string]string{"name": "snap"})},
+		{http.MethodDelete, "/snapshots/snap-001?db_type=unknown", nil},
+		{http.MethodPost, "/clones?db_type=unknown", mustMarshal(map[string]string{"snapshot": "snap", "name": "clone"})},
+		{http.MethodGet, "/clones?db_type=unknown", nil},
+		{http.MethodGet, "/clones/feature-x?db_type=unknown", nil},
+		{http.MethodDelete, "/clones/feature-x?db_type=unknown", nil},
+		{http.MethodPost, "/gc?db_type=unknown", nil},
+		{http.MethodPost, "/reset?db_type=unknown", nil},
+	}
+
+	for _, e := range endpoints {
+		t.Run(e.method+" "+e.path, func(t *testing.T) {
+			req := authorizedRequest(e.method, e.path, e.body)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("got status %d, want 400 for unknown db_type", w.Code)
+			}
+		})
+	}
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

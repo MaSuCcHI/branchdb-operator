@@ -4,6 +4,7 @@ package k8sdatabase
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -112,7 +113,8 @@ func NewProvider(c client.Client, namespace string, imageOverrides map[string]st
 // Start は K8s 上に PV, PVC, (ConfigMap), Pod, Service を作成し BranchEndpoint を返す。
 // dbType が空の場合は "mysql" として扱う。
 // dbVersion が空の場合は dbType のデフォルトイメージタグを使用する。
-func (p *Provider) Start(ctx context.Context, branchName string, vol domain.VolumeInfo, dbType, dbVersion string) (domain.BranchEndpoint, error) {
+// owner が非 nil の場合は全リソースに OwnerReference を設定する。
+func (p *Provider) Start(ctx context.Context, branchName string, vol domain.VolumeInfo, dbType, dbVersion string, owner *domain.OwnerRef) (domain.BranchEndpoint, error) {
 	if dbType == "" {
 		dbType = "mysql"
 	}
@@ -123,21 +125,22 @@ func (p *Provider) Start(ctx context.Context, branchName string, vol domain.Volu
 
 	image := p.resolveImage(cfg, dbType, dbVersion)
 
-	if err := p.createPV(ctx, branchName, vol); err != nil {
+	ownerRefs := buildOwnerRefs(owner)
+	if err := p.createPV(ctx, branchName, vol, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create PV: %w", err)
 	}
-	if err := p.createPVC(ctx, branchName); err != nil {
+	if err := p.createPVC(ctx, branchName, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create PVC: %w", err)
 	}
 	if cfg.extraConfig != "" {
-		if err := p.createConfigMap(ctx, branchName, cfg); err != nil {
+		if err := p.createConfigMap(ctx, branchName, cfg, ownerRefs); err != nil {
 			return domain.BranchEndpoint{}, fmt.Errorf("create ConfigMap: %w", err)
 		}
 	}
-	if err := p.createPod(ctx, branchName, image, cfg); err != nil {
+	if err := p.createPod(ctx, branchName, image, cfg, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create Pod: %w", err)
 	}
-	if err := p.createService(ctx, branchName, cfg.port); err != nil {
+	if err := p.createService(ctx, branchName, cfg.port, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create Service: %w", err)
 	}
 	nodePort, err := p.getNodePort(ctx, branchName)
@@ -145,30 +148,43 @@ func (p *Provider) Start(ctx context.Context, branchName string, vol domain.Volu
 		return domain.BranchEndpoint{}, fmt.Errorf("get NodePort: %w", err)
 	}
 	return domain.BranchEndpoint{
-		Host:         fmt.Sprintf("%s.%s.svc.cluster.local", branchName, p.namespace),
+		Host:         fmt.Sprintf("%s.%s.svc.cluster.local", svcName(branchName), p.namespace),
 		Port:         int(cfg.port),
 		ExternalPort: nodePort,
 	}, nil
 }
 
-// Stop は K8s 上の Service, Pod, ConfigMap, PVC, PV を削除する。エラーは無視して全削除を試みる。
+// Stop は K8s 上の Service, Pod, ConfigMap, PVC, PV を削除する。
+// NotFound エラーは無視し（リソースが既に存在しない場合）、それ以外のエラーは集約して返す。
 func (p *Provider) Stop(ctx context.Context, branchName string) error {
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: branchName, Namespace: p.namespace}}
-	_ = p.client.Delete(ctx, svc)
+	var errs []error
+
+	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName(branchName), Namespace: p.namespace}}
+	if err := p.client.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete Service: %w", err))
+	}
 
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: podName(branchName), Namespace: p.namespace}}
-	_ = p.client.Delete(ctx, pod)
+	if err := p.client.Delete(ctx, pod); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete Pod: %w", err))
+	}
 
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName(branchName), Namespace: p.namespace}}
-	_ = p.client.Delete(ctx, cm)
+	if err := p.client.Delete(ctx, cm); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete ConfigMap: %w", err))
+	}
 
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: pvcName(branchName), Namespace: p.namespace}}
-	_ = p.client.Delete(ctx, pvc)
+	if err := p.client.Delete(ctx, pvc); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete PVC: %w", err))
+	}
 
 	pv := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: pvName(branchName)}}
-	_ = p.client.Delete(ctx, pv)
+	if err := p.client.Delete(ctx, pv); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete PV: %w", err))
+	}
 
-	return nil
+	return goerrors.Join(errs...)
 }
 
 // resolveImage はイメージを決定する。優先順位: dbVersion引数 > imageOverrides > builtinDefaults
@@ -201,10 +217,32 @@ func pvcName(branchName string) string { return fmt.Sprintf("branchdb-pvc-%s", b
 func podName(branchName string) string { return fmt.Sprintf("branchdb-db-%s", branchName) }
 func cmName(branchName string) string  { return fmt.Sprintf("branchdb-cfg-%s", branchName) }
 
-func (p *Provider) createPV(ctx context.Context, branchName string, vol domain.VolumeInfo) error {
+// svcName は Service 名を生成する。namespace 内の既存 Service との衝突を避けるためプレフィックスを付与する。
+func svcName(branchName string) string { return fmt.Sprintf("branchdb-svc-%s", branchName) }
+
+// buildOwnerRefs は domain.OwnerRef から metav1.OwnerReference のスライスを構築する。
+// owner が nil の場合は nil を返す。
+func buildOwnerRefs(owner *domain.OwnerRef) []metav1.OwnerReference {
+	if owner == nil {
+		return nil
+	}
+	t := true
+	return []metav1.OwnerReference{
+		{
+			APIVersion:         owner.APIVersion,
+			Kind:               owner.Kind,
+			Name:               owner.Name,
+			UID:                types.UID(owner.UID),
+			BlockOwnerDeletion: &t,
+			Controller:         &t,
+		},
+	}
+}
+
+func (p *Provider) createPV(ctx context.Context, branchName string, vol domain.VolumeInfo, ownerRefs []metav1.OwnerReference) error {
 	storageClass := ""
 	pv := &corev1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{Name: pvName(branchName)},
+		ObjectMeta: metav1.ObjectMeta{Name: pvName(branchName), OwnerReferences: ownerRefs},
 		Spec: corev1.PersistentVolumeSpec{
 			Capacity: corev1.ResourceList{
 				corev1.ResourceStorage: resource.MustParse("10Gi"),
@@ -224,13 +262,14 @@ func (p *Provider) createPV(ctx context.Context, branchName string, vol domain.V
 	return err
 }
 
-func (p *Provider) createPVC(ctx context.Context, branchName string) error {
+func (p *Provider) createPVC(ctx context.Context, branchName string, ownerRefs []metav1.OwnerReference) error {
 	storageClass := ""
 	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: pvcName(branchName), Namespace: p.namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: pvcName(branchName), Namespace: p.namespace, OwnerReferences: ownerRefs},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			StorageClassName: &storageClass,
+			VolumeName:       pvName(branchName),
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceStorage: resource.MustParse("10Gi"),
@@ -245,9 +284,9 @@ func (p *Provider) createPVC(ctx context.Context, branchName string) error {
 	return err
 }
 
-func (p *Provider) createConfigMap(ctx context.Context, branchName string, cfg dbConfig) error {
+func (p *Provider) createConfigMap(ctx context.Context, branchName string, cfg dbConfig, ownerRefs []metav1.OwnerReference) error {
 	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: cmName(branchName), Namespace: p.namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: cmName(branchName), Namespace: p.namespace, OwnerReferences: ownerRefs},
 		Data:       map[string]string{cfg.extraConfigKey: cfg.extraConfig},
 	}
 	err := p.client.Create(ctx, cm)
@@ -257,7 +296,7 @@ func (p *Provider) createConfigMap(ctx context.Context, branchName string, cfg d
 	return err
 }
 
-func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg dbConfig) error {
+func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg dbConfig, ownerRefs []metav1.OwnerReference) error {
 	const dataVolName = "db-data"
 	const cfgVolName = "db-config"
 	initialDelay := int32(10)
@@ -330,9 +369,10 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName(branchName),
-			Namespace: p.namespace,
-			Labels:    map[string]string{"branchdb-branch": branchName},
+			Name:            podName(branchName),
+			Namespace:       p.namespace,
+			Labels:          map[string]string{"branchdb-branch": branchName},
+			OwnerReferences: ownerRefs,
 		},
 		Spec: spec,
 	}
@@ -343,9 +383,9 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 	return err
 }
 
-func (p *Provider) createService(ctx context.Context, branchName string, port int32) error {
+func (p *Provider) createService(ctx context.Context, branchName string, port int32, ownerRefs []metav1.OwnerReference) error {
 	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: branchName, Namespace: p.namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: svcName(branchName), Namespace: p.namespace, OwnerReferences: ownerRefs},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeNodePort,
 			Selector: map[string]string{"branchdb-branch": branchName},
@@ -363,7 +403,7 @@ func (p *Provider) createService(ctx context.Context, branchName string, port in
 
 func (p *Provider) getNodePort(ctx context.Context, branchName string) (int, error) {
 	var svc corev1.Service
-	if err := p.client.Get(ctx, types.NamespacedName{Name: branchName, Namespace: p.namespace}, &svc); err != nil {
+	if err := p.client.Get(ctx, types.NamespacedName{Name: svcName(branchName), Namespace: p.namespace}, &svc); err != nil {
 		return 0, fmt.Errorf("get service: %w", err)
 	}
 	for _, port := range svc.Spec.Ports {

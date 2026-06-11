@@ -80,8 +80,9 @@ func (p *AgentProvider) DeleteSnapshot(ctx context.Context, name string) error {
 }
 
 // ListSnapshots はスナップショット一覧を返す。
+// `-p` フラグで epoch 秒として creation を取得することで、ロケール依存を回避する。
 func (p *AgentProvider) ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error) {
-	out, err := exec.CommandContext(ctx, "zfs", "list", "-t", "snapshot", "-H", "-o", "name,creation", p.dataset).Output()
+	out, err := exec.CommandContext(ctx, "zfs", "list", "-t", "snapshot", "-p", "-H", "-o", "name,creation", p.dataset).Output()
 	if err != nil {
 		return nil, fmt.Errorf("zfs list snapshots: %w", err)
 	}
@@ -347,7 +348,8 @@ func (p *AgentProvider) ResetDataset(ctx context.Context) error {
 	return nil
 }
 
-// parseSnapshotList は "zfs list -t snapshot" の出力をパースする。
+// parseSnapshotList は "zfs list -p -t snapshot" の出力をパースする。
+// -p フラグにより creation フィールドは epoch 秒（整数）として出力される。
 func parseSnapshotList(out []byte, dataset string) ([]domain.SnapshotInfo, error) {
 	var result []domain.SnapshotInfo
 	prefix := dataset + "@"
@@ -363,7 +365,10 @@ func parseSnapshotList(out []byte, dataset string) ([]domain.SnapshotInfo, error
 		}
 		fullName := fields[0]
 		name := strings.TrimPrefix(fullName, prefix)
-		createdAt, _ := time.Parse("Mon Jan  2 15:04 2006", strings.Join(fields[1:], " "))
+		var createdAt time.Time
+		if epochSec, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
+			createdAt = time.Unix(epochSec, 0).UTC()
+		}
 		result = append(result, domain.SnapshotInfo{
 			Name:      name,
 			CreatedAt: createdAt,

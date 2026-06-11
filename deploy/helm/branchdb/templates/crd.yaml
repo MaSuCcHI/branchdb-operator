@@ -16,7 +16,7 @@ spec:
     listKind: DatabaseBranchList
     plural: databasebranches
     singular: databasebranch
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.phase
@@ -50,9 +50,6 @@ spec:
                 default: mysql
               databaseVersion:
                 description: DatabaseVersion はコンテナイメージのタグを上書きする。省略時は Operator のデフォルトを使用する。
-                type: string
-              initSQL:
-                description: InitSQL はブランチ作成後に実行する初期化 SQL を指定する。
                 type: string
               snapshotRef:
                 description: SnapshotRef はブランチの元となるスナップショット名を指定する。

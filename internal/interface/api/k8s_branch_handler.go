@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
@@ -107,18 +108,36 @@ func isDigits(s string) bool {
 	return len(s) > 0
 }
 
+// dns1123LabelRegexp は DNS-1123 ラベルの正規表現。
+// 先頭は英小文字または数字、末尾は英小文字または数字、途中はハイフンも可。最大63文字。
+var dns1123LabelRegexp = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
+
+// isValidBranchName は DNS-1123 ラベル形式のブランチ名かどうかを確認する。
+func isValidBranchName(name string) bool {
+	if len(name) == 0 || len(name) > 63 {
+		return false
+	}
+	// 1文字の場合は英小文字または数字のみ許可
+	if len(name) == 1 {
+		c := name[0]
+		return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+	}
+	return dns1123LabelRegexp.MatchString(name)
+}
+
 // mysqlQuerier は MySQL の接続数を取得する関数型。テストで差し替え可能にするための内部 DI。
 type mysqlQuerier func(ctx context.Context, clusterHost string) (threads int, err error)
 
 // K8sBranchHandler handles branch CRUD via DatabaseBranch CRs.
 // ExternalPort は NodePort として K8s が割り当てるため、ハンドラ側でポート管理は行わない。
 type K8sBranchHandler struct {
-	k8sClient       DatabaseBranchClient
-	volumeProvider  domain.VolumeProvider // optional; nil = snapshots unavailable
-	externalHost    string
-	namespace       string
-	portWaitTimeout time.Duration
-	mysqlQuerier    mysqlQuerier // nil = realMySQLQuerier を使用
+	k8sClient        DatabaseBranchClient
+	volumeProvider   domain.VolumeProvider // optional; nil = snapshots unavailable
+	externalHost     string
+	namespace        string
+	portWaitTimeout  time.Duration
+	resetWaitTimeout time.Duration // handleResetDataset で CR の消化を待つタイムアウト
+	mysqlQuerier     mysqlQuerier  // nil = realMySQLQuerier を使用
 }
 
 // NewK8sBranchHandler creates a new K8sBranchHandler. Namespace defaults to "default".
@@ -155,6 +174,12 @@ func (h *K8sBranchHandler) WithMySQLQuerier(q func(ctx context.Context, clusterH
 	return h
 }
 
+// WithResetWaitTimeout sets the timeout for waiting CR deletion to complete before ResetDataset.
+func (h *K8sBranchHandler) WithResetWaitTimeout(d time.Duration) *K8sBranchHandler {
+	h.resetWaitTimeout = d
+	return h
+}
+
 type k8sCreateRequest struct {
 	Name            string `json:"name"`
 	SnapshotRef     string `json:"snapshot_ref,omitempty"`
@@ -173,24 +198,31 @@ func (h *K8sBranchHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if !isValidBranchName(req.Name) {
+		writeError(w, http.StatusBadRequest, "name must be a valid DNS-1123 label: lowercase alphanumeric and hyphens only, max 63 chars, must start and end with alphanumeric")
+		return
+	}
 
 	if h.volumeProvider != nil {
 		if req.SnapshotRef == "" {
 			writeError(w, http.StatusBadRequest, "snapshot_ref is required")
 			return
 		}
-		if snaps, err := h.volumeProvider.ListSnapshots(r.Context(), req.DatabaseType); err == nil {
-			found := false
-			for _, s := range snaps {
-				if s.Name == req.SnapshotRef {
-					found = true
-					break
-				}
+		snaps, err := h.volumeProvider.ListSnapshots(r.Context(), req.DatabaseType)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, fmt.Sprintf("snapshot service unavailable: %v", err))
+			return
+		}
+		found := false
+		for _, s := range snaps {
+			if s.Name == req.SnapshotRef {
+				found = true
+				break
 			}
-			if !found {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("snapshot %q not found for database type %q", req.SnapshotRef, req.DatabaseType))
-				return
-			}
+		}
+		if !found {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("snapshot %q not found for database type %q", req.SnapshotRef, req.DatabaseType))
+			return
 		}
 	}
 
@@ -231,7 +263,10 @@ func (h *K8sBranchHandler) pollForPort(ctx context.Context, name string, timeout
 		}
 		select {
 		case <-ctx.Done():
-			break
+			// コンテキストがキャンセルされたらループを抜ける。
+			var cr v1alpha1.DatabaseBranch
+			_ = h.k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: h.namespace}, &cr)
+			return &cr
 		case <-time.After(interval):
 		}
 	}
@@ -518,6 +553,12 @@ func (h *K8sBranchHandler) handleResetDataset(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// CR 削除が Operator に処理されるまで待つ（ファイナライザーが消化されるまで）。
+	// resetWaitTimeout が 0 のときはポーリングをスキップする。
+	if h.resetWaitTimeout > 0 && deletedBranches > 0 {
+		h.waitForCRsDeletion(r.Context(), body.DBType, h.resetWaitTimeout)
+	}
+
 	if err := h.volumeProvider.ResetDataset(r.Context(), body.DBType); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -527,6 +568,32 @@ func (h *K8sBranchHandler) handleResetDataset(w http.ResponseWriter, r *http.Req
 		"deleted_branches": deletedBranches,
 		"message":          "ready for new data — take a fresh snapshot to start",
 	})
+}
+
+// waitForCRsDeletion polls until no CRs matching dbType remain, or the timeout elapses.
+// This ensures the Operator has processed finalizers before we destroy the ZFS dataset.
+func (h *K8sBranchHandler) waitForCRsDeletion(ctx context.Context, dbType string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var list v1alpha1.DatabaseBranchList
+		if err := h.k8sClient.List(ctx, &list, client.InNamespace(h.namespace)); err != nil {
+			return
+		}
+		remaining := 0
+		for i := range list.Items {
+			if dbType == "" || list.Items[i].Spec.DatabaseType == dbType {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
@@ -615,16 +682,22 @@ func queryMySQLThreads(ctx context.Context, driverName, dsn string) (int, error)
 	defer rows.Close()
 
 	var varName, varValue string
-	if rows.Next() {
-		if err := rows.Scan(&varName, &varValue); err != nil {
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
 			return 0, err
 		}
+		return 0, fmt.Errorf("queryMySQLThreads: no rows returned")
+	}
+	if err := rows.Scan(&varName, &varValue); err != nil {
+		return 0, err
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
 
 	var threads int
-	fmt.Sscanf(varValue, "%d", &threads)
+	if n, err := fmt.Sscanf(varValue, "%d", &threads); n != 1 || err != nil {
+		return 0, fmt.Errorf("queryMySQLThreads: failed to parse thread count %q", varValue)
+	}
 	return threads, nil
 }
