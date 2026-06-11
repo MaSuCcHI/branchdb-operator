@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
 	"github.com/go-chi/chi/v5"
@@ -39,12 +41,14 @@ type Handler struct {
 }
 
 // NewHandler は Handler を生成する。
-// providers の最初のキーが defaultType になる。
+// providers が単一エントリのときのみ defaultType を設定する。
+// 複数エントリの場合は defaultType は空となり、db_type クエリパラメータが必須になる。
 func NewHandler(providers map[string]AgentVolumeProvider, token string) *Handler {
 	defaultType := ""
-	for k := range providers {
-		defaultType = k
-		break
+	if len(providers) == 1 {
+		for k := range providers {
+			defaultType = k
+		}
 	}
 	return &Handler{providers: providers, defaultType: defaultType, token: token}
 }
@@ -72,15 +76,20 @@ func NewRouter(h *Handler) http.Handler {
 
 // pickProvider は ?db_type= クエリパラメータでプロバイダーを選択する。
 // パラメータが省略された場合はデフォルトプロバイダーを使用する。
-func (h *Handler) pickProvider(r *http.Request) AgentVolumeProvider {
+// デフォルトプロバイダーが設定されていない（複数プロバイダー構成）かつ db_type が省略された場合は
+// nil と "db_type is required" エラーを返す。
+func (h *Handler) pickProvider(r *http.Request) (AgentVolumeProvider, error) {
 	dbType := r.URL.Query().Get("db_type")
 	if dbType == "" {
+		if h.defaultType == "" {
+			return nil, errors.New("db_type is required when multiple datasets are configured")
+		}
 		dbType = h.defaultType
 	}
 	if p, ok := h.providers[dbType]; ok {
-		return p
+		return p, nil
 	}
-	return h.providers[h.defaultType]
+	return nil, fmt.Errorf("unknown db_type %q", dbType)
 }
 
 // authMiddleware は Bearer トークン認証を行う。
@@ -117,7 +126,12 @@ func (h *Handler) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := h.pickProvider(r).TakeSnapshot(r.Context(), req.Name, req.Overwrite); err != nil {
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := provider.TakeSnapshot(r.Context(), req.Name, req.Overwrite); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -135,7 +149,12 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	if dbType == "" {
 		dbType = h.defaultType
 	}
-	snapshots, err := h.pickProvider(r).ListSnapshots(r.Context())
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	snapshots, err := provider.ListSnapshots(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -144,7 +163,7 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	for i, s := range snapshots {
 		resp[i] = snapshotResponse{
 			Name:         s.Name,
-			CreatedAt:    s.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			CreatedAt:    s.CreatedAt.UTC().Format(time.RFC3339),
 			DatabaseType: dbType,
 		}
 	}
@@ -153,7 +172,12 @@ func (h *Handler) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.pickProvider(r).DeleteSnapshot(r.Context(), name); err != nil {
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := provider.DeleteSnapshot(r.Context(), name); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -199,7 +223,12 @@ func (h *Handler) handleCreateClone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	vol, err := h.pickProvider(r).CreateClone(r.Context(), req.Snapshot, req.Name)
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	vol, err := provider.CreateClone(r.Context(), req.Snapshot, req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -208,7 +237,12 @@ func (h *Handler) handleCreateClone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListClones(w http.ResponseWriter, r *http.Request) {
-	clones, err := h.pickProvider(r).ListClones(r.Context())
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	clones, err := provider.ListClones(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -222,7 +256,12 @@ func (h *Handler) handleListClones(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGetClone(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	vol, err := h.pickProvider(r).GetClone(r.Context(), name)
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	vol, err := provider.GetClone(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -236,7 +275,12 @@ func (h *Handler) handleGetClone(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteClone(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.pickProvider(r).DeleteClone(r.Context(), name); err != nil {
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := provider.DeleteClone(r.Context(), name); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -259,7 +303,12 @@ func (h *Handler) handleGC(w http.ResponseWriter, r *http.Request) {
 	if req.KeepSnapshots <= 0 {
 		req.KeepSnapshots = 5
 	}
-	deleted, err := h.pickProvider(r).GCSnapshots(r.Context(), req.KeepSnapshots)
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	deleted, err := provider.GCSnapshots(r.Context(), req.KeepSnapshots)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -268,7 +317,12 @@ func (h *Handler) handleGC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleReset(w http.ResponseWriter, r *http.Request) {
-	if err := h.pickProvider(r).ResetDataset(r.Context()); err != nil {
+	provider, err := h.pickProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := provider.ResetDataset(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -706,6 +706,31 @@ func TestK8sCreate_snapshot_refが空のときVolumeProvider設定済みなら40
 	}
 }
 
+func TestK8sCreate_ListSnapshotsエラー時に503を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockVP := &mockVolumeProvider{
+		listSnapshotsFunc: func(ctx context.Context, dbType string) ([]domain.SnapshotInfo, error) {
+			return nil, errors.New("agent unavailable")
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithVolumeProvider(mockVP).
+		WithPortWaitTimeout(0)
+	router := api.NewK8sRouter(handler)
+
+	body, _ := json.Marshal(map[string]any{"name": "new-branch", "database_type": "mysql", "snapshot_ref": "base"})
+	req := httptest.NewRequest(http.MethodPost, "/branches", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("got status %d, want 503 when ListSnapshots errors", w.Code)
+	}
+}
+
 func TestK8sCreate_指定dbTypeにsnapshotが存在しないとき400を返す(t *testing.T) {
 	scheme := newK8sTestScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1354,6 +1379,42 @@ func TestK8sReset_VolumeProviderが未設定のとき501を返す(t *testing.T) 
 	}
 }
 
+func TestK8sReset_CRの削除完了を待ってからResetDatasetを呼ぶ(t *testing.T) {
+	// このテストでは、fake クライアントが即座に削除を完了するため、
+	// ResetDataset が CR削除「後」に呼ばれることを確認する。
+	scheme := newK8sTestScheme()
+	cr := v1alpha1.DatabaseBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-branch", Namespace: "default"},
+		Spec:       v1alpha1.DatabaseBranchSpec{DatabaseType: "mysql"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&cr).Build()
+
+	resetCalled := false
+	mockVP := &mockVolumeProvider{
+		resetDatasetFunc: func(_ context.Context, _ string) error {
+			resetCalled = true
+			return nil
+		},
+	}
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithVolumeProvider(mockVP).
+		WithResetWaitTimeout(100 * time.Millisecond)
+	router := api.NewK8sRouter(handler)
+
+	body, _ := json.Marshal(map[string]string{"db_type": "mysql"})
+	req := httptest.NewRequest(http.MethodPost, "/snapshots/reset", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200", w.Code)
+	}
+	if !resetCalled {
+		t.Error("ResetDataset must be called after CRs are gone")
+	}
+}
+
 func TestK8sReset_CRとZFSデータを削除する(t *testing.T) {
 	scheme := newK8sTestScheme()
 	cr := v1alpha1.DatabaseBranch{
@@ -1542,6 +1603,66 @@ func TestServeSwaggerUI_HTMLが返る(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("swagger-ui")) {
 		t.Error("response body does not contain 'swagger-ui'")
+	}
+}
+
+func TestK8sPostBranches_DNS非準拠のブランチ名は400を返す(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithPortWaitTimeout(10 * time.Millisecond)
+	router := api.NewK8sRouter(handler)
+
+	invalidNames := []string{
+		"UPPERCASE",
+		"has_underscore",
+		"-starts-with-dash",
+		"ends-with-dash-",
+		"contains spaces",
+		strings.Repeat("a", 64), // 64文字は DNS-1123 ラベル規格外
+	}
+
+	for _, name := range invalidNames {
+		t.Run(name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]any{"name": name})
+			req := httptest.NewRequest(http.MethodPost, "/branches", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("got status %d, want 400 for invalid name %q", w.Code, name)
+			}
+		})
+	}
+}
+
+func TestK8sPostBranches_有効なブランチ名は通過する(t *testing.T) {
+	scheme := newK8sTestScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := api.NewK8sBranchHandler(fakeClient, "branchdb.example.com").
+		WithPortWaitTimeout(10 * time.Millisecond)
+	router := api.NewK8sRouter(handler)
+
+	validNames := []string{
+		"feature-login",
+		"abc",
+		"a1b2c3",
+		strings.Repeat("a", 63), // 63文字は DNS-1123 ラベル最大長
+	}
+
+	for _, name := range validNames {
+		t.Run(name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]any{"name": name})
+			req := httptest.NewRequest(http.MethodPost, "/branches", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusAccepted {
+				t.Errorf("got status %d, want 202 for valid name %q", w.Code, name)
+			}
+		})
 	}
 }
 

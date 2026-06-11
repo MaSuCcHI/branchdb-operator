@@ -62,7 +62,7 @@ type mockDatabaseProvider struct {
 	stopFunc  func(ctx context.Context, branchName string) error
 }
 
-func (m *mockDatabaseProvider) Start(ctx context.Context, branchName string, volumeInfo domain.VolumeInfo, dbType, dbVersion string) (domain.BranchEndpoint, error) {
+func (m *mockDatabaseProvider) Start(ctx context.Context, branchName string, volumeInfo domain.VolumeInfo, dbType, dbVersion string, owner *domain.OwnerRef) (domain.BranchEndpoint, error) {
 	if m.startFunc != nil {
 		return m.startFunc(ctx, branchName, volumeInfo, dbType, dbVersion)
 	}
@@ -594,6 +594,30 @@ func TestReconcile_削除フロー中のfinalizer削除Update失敗時にエラ�
 	_, err := reconcile(t, r, "feature-rm-finalizer-err")
 	if err == nil {
 		t.Fatal("expected error when finalizer removal Update fails")
+	}
+}
+
+func TestReconcile_RequeueAfterはTTL残り時間とrequeueIntervalの小さい方になる(t *testing.T) {
+	scheme := newScheme()
+	// TTL 残り 1 分に設定 → requeueInterval(10分) より短いので 1 分前後でスケジュールされるはず
+	in1min := metav1.NewTime(time.Now().Add(1 * time.Minute))
+	branch := newBranch("feature-ttl-min", func(b *v1alpha1.DatabaseBranch) {
+		b.Finalizers = []string{v1alpha1.FinalizerName}
+		b.Status.Phase = v1alpha1.BranchPhaseReady
+		b.Status.ExpiresAt = &in1min
+	})
+	r := newReconciler(scheme, []runtime.Object{branch}, &mockVolumeProvider{}, &mockDatabaseProvider{})
+
+	result, err := reconcile(t, r, "feature-ttl-min")
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+	// requeueInterval = 10 分; 残り ≈ 1 分 なので RequeueAfter < 2 分であること
+	if result.RequeueAfter > 2*time.Minute {
+		t.Errorf("RequeueAfter = %v, want <= 2m (should use remaining TTL, not 10m)", result.RequeueAfter)
+	}
+	if result.RequeueAfter < 30*time.Second {
+		t.Errorf("RequeueAfter = %v, want >= 30s (should be close to remaining TTL)", result.RequeueAfter)
 	}
 }
 

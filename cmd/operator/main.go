@@ -46,9 +46,11 @@ func main() {
 
 	// Read configuration from environment variables.
 	externalHost := getEnv("ZFSDB_EXTERNAL_HOST", "")
-	namespace := getEnv("ZFSDB_NAMESPACE", "branchdb-system")
-	zfsAgentURL := getEnv("ZFSAGENT_URL", "")
-	zfsAgentToken := getEnv("ZFSAGENT_TOKEN", "")
+	namespace := getEnv("ZFSDB_NAMESPACE", "default")
+	// ZFSDB_ZFSAGENT_URL / ZFSDB_ZFSAGENT_TOKEN を正式名とし、
+	// 旧名 ZFSAGENT_URL / ZFSAGENT_TOKEN はフォールバックとして読む。
+	zfsAgentURL := getEnvFallback("ZFSDB_ZFSAGENT_URL", "ZFSAGENT_URL", "")
+	zfsAgentToken := getEnvFallback("ZFSDB_ZFSAGENT_TOKEN", "ZFSAGENT_TOKEN", "")
 	// Per-database image overrides（空文字列はデフォルトイメージを使用）
 	imageOverrides := map[string]string{
 		"mysql":    getEnv("ZFSDB_MYSQL_IMAGE", ""),
@@ -60,7 +62,7 @@ func main() {
 		setupLog.Info("Warning: ZFSDB_EXTERNAL_HOST is not set; external connectivity will use empty host")
 	}
 	if zfsAgentURL == "" {
-		setupLog.Error(fmt.Errorf("ZFSAGENT_URL is required"), "missing volume provider configuration")
+		setupLog.Error(fmt.Errorf("ZFSDB_ZFSAGENT_URL is required"), "missing volume provider configuration")
 		os.Exit(1)
 	}
 
@@ -114,6 +116,18 @@ func main() {
 
 func getEnv(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
+// getEnvFallback は primaryKey を読み、空の場合は fallbackKey を試み、
+// どちらも空の場合は defaultVal を返す。
+func getEnvFallback(primaryKey, fallbackKey, defaultVal string) string {
+	if v := os.Getenv(primaryKey); v != "" {
+		return v
+	}
+	if v := os.Getenv(fallbackKey); v != "" {
 		return v
 	}
 	return defaultVal

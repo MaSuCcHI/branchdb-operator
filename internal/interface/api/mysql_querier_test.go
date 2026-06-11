@@ -69,15 +69,24 @@ func TestRealMySQLQuerier_クエリ成功時にスレッド数を返す(t *testi
 	}
 }
 
-func TestRealMySQLQuerier_行が0件のとき0を返す(t *testing.T) {
+func TestRealMySQLQuerier_行が0件のときエラーを返す(t *testing.T) {
 	driverName := fmt.Sprintf("fakemysql-%s-empty", t.Name())
 	sql.Register(driverName, &fakeDriver{rows: nil}) // no rows
 
-	threads, err := queryMySQLThreads(context.Background(), driverName, "dummy-dsn")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := queryMySQLThreads(context.Background(), driverName, "dummy-dsn")
+	if err == nil {
+		t.Fatal("expected error when no rows returned, got nil")
 	}
-	if threads != 0 {
-		t.Errorf("threads = %d, want 0", threads)
+}
+
+func TestRealMySQLQuerier_Sscanf失敗時にエラーを返す(t *testing.T) {
+	driverName := fmt.Sprintf("fakemysql-%s-scanfail", t.Name())
+	sql.Register(driverName, &fakeDriver{rows: [][]driver.Value{
+		{"Threads_connected", "not-a-number"},
+	}})
+
+	_, err := queryMySQLThreads(context.Background(), driverName, "dummy-dsn")
+	if err == nil {
+		t.Fatal("expected error when Sscanf fails to parse thread count, got nil")
 	}
 }

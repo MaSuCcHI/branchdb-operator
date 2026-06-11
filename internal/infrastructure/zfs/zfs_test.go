@@ -8,11 +8,12 @@ import (
 )
 
 // parseSnapshotList のテスト（純粋関数: exec に依存しない）
+// zfs list -p で epoch 秒形式の出力を使う
 func TestParseSnapshotList(t *testing.T) {
 	dataset := "tank/mysql"
 	input := []byte(
-		"tank/mysql@base\tMon Jan  2 15:04 2006\n" +
-			"tank/mysql@feature-login\tTue Jan  3 10:00 2006\n" +
+		"tank/mysql@base\t1735689600\n" +
+			"tank/mysql@feature-login\t1735776000\n" +
 			"\n", // 空行は無視される
 	)
 	got, err := parseSnapshotList(input, dataset)
@@ -49,6 +50,29 @@ func TestParseSnapshotList_SkipsShortLines(t *testing.T) {
 	// フィールドが1つだけの行はスキップされる
 	if len(got) != 0 {
 		t.Errorf("expected 0 entries for short line, got %d", len(got))
+	}
+}
+
+func TestParseSnapshotList_EpochSeconds(t *testing.T) {
+	dataset := "tank/mysql"
+	// zfs list -p -H -o name,creation の出力形式: <name>\t<epoch秒>
+	input := []byte(
+		"tank/mysql@base\t1735689600\n" + // 2025-01-01 00:00:00 UTC
+			"tank/mysql@feature-login\t1735776000\n", // 2025-01-02 00:00:00 UTC
+	)
+	got, err := parseSnapshotList(input, dataset)
+	if err != nil {
+		t.Fatalf("parseSnapshotList: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].CreatedAt.IsZero() {
+		t.Error("got[0].CreatedAt is zero, epoch parsing must have failed")
+	}
+	wantTime := time.Unix(1735689600, 0).UTC()
+	if !got[0].CreatedAt.Equal(wantTime) {
+		t.Errorf("got[0].CreatedAt = %v, want %v", got[0].CreatedAt, wantTime)
 	}
 }
 

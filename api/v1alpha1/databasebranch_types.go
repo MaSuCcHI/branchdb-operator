@@ -33,10 +33,6 @@ type DatabaseBranchSpec struct {
 	// +optional
 	TTLHours int `json:"ttlHours,omitempty"`
 
-	// InitSQL はブランチ作成後に実行する初期化 SQL を指定する。
-	// +optional
-	InitSQL string `json:"initSQL,omitempty"`
-
 	// DatabaseType は起動するデータベースの種類を指定する。
 	// 対応値: mysql（デフォルト）, postgres, redis
 	// +optional
@@ -83,7 +79,7 @@ type DatabaseBranchStatus struct {
 // DatabaseBranch は BranchDB が管理するデータベースブランチを表す。
 //
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="ExternalPort",type="integer",JSONPath=".status.externalPort"

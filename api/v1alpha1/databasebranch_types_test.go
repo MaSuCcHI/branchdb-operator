@@ -18,7 +18,6 @@ func TestDatabaseBranch_DeepCopy(t *testing.T) {
 		Spec: DatabaseBranchSpec{
 			SnapshotRef: "snapshot-001",
 			TTLHours:    24,
-			InitSQL:     "CREATE TABLE foo (id INT);",
 		},
 		Status: DatabaseBranchStatus{
 			Phase:        BranchPhaseReady,
@@ -42,9 +41,6 @@ func TestDatabaseBranch_DeepCopy(t *testing.T) {
 	}
 	if copied.Spec.TTLHours != original.Spec.TTLHours {
 		t.Errorf("DeepCopy: Spec.TTLHours = %d, want %d", copied.Spec.TTLHours, original.Spec.TTLHours)
-	}
-	if copied.Spec.InitSQL != original.Spec.InitSQL {
-		t.Errorf("DeepCopy: Spec.InitSQL = %q, want %q", copied.Spec.InitSQL, original.Spec.InitSQL)
 	}
 	if copied.Status.Phase != original.Status.Phase {
 		t.Errorf("DeepCopy: Status.Phase = %q, want %q", copied.Status.Phase, original.Status.Phase)
