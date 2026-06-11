@@ -2,6 +2,7 @@ package zfsagent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -93,6 +94,7 @@ func (h *Handler) pickProvider(r *http.Request) (AgentVolumeProvider, error) {
 }
 
 // authMiddleware は Bearer トークン認証を行う。
+// タイミング攻撃を防ぐため crypto/subtle.ConstantTimeCompare でトークンを比較する。
 func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -101,7 +103,7 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token != h.token {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(h.token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}

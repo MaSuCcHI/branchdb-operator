@@ -162,3 +162,63 @@ func TestWSHub_ServeWSは非WebSocketリクエストを処理しない(t *testin
 	router.ServeHTTP(w, req)
 	// WebSocket upgrade fails on a non-upgraded request; it returns an error but shouldn't panic.
 }
+
+// --- CheckOrigin テスト ---
+
+func TestWSHub_CheckOrigin_Originヘッダなしは許可される(t *testing.T) {
+	// Origin ヘッダが無い（非ブラウザ）リクエストは許可されること。
+	hub := api.NewWSHub()
+	go hub.Run()
+
+	router := api.NewWSRouter(hub)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	// websocket.DefaultDialer は Origin ヘッダを設定しない → 許可されるはず
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Origin なしの接続が拒否された: %v", err)
+	}
+	defer conn.Close()
+}
+
+func TestWSHub_CheckOrigin_同一OriginHost許可される(t *testing.T) {
+	// Origin ヘッダが Host と同一のとき許可されること。
+	hub := api.NewWSHub()
+	go hub.Run()
+
+	router := api.NewWSRouter(hub)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	origin := "http" + strings.TrimPrefix(srv.URL, "http") // Host と同一
+	header := http.Header{"Origin": []string{origin}}
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("同一 Origin の接続が拒否された (status=%v): %v", resp, err)
+	}
+	defer conn.Close()
+}
+
+func TestWSHub_CheckOrigin_異なるOriginは拒否される(t *testing.T) {
+	// Origin ヘッダが Host と異なるとき拒否されること。
+	hub := api.NewWSHub()
+	go hub.Run()
+
+	router := api.NewWSRouter(hub)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	header := http.Header{"Origin": []string{"http://evil.example.com"}}
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err == nil {
+		conn.Close()
+		t.Fatal("異なる Origin の接続が許可されてしまった")
+	}
+	if resp != nil && resp.StatusCode != http.StatusForbidden {
+		t.Errorf("got status %d, want 403 for cross-origin WebSocket", resp.StatusCode)
+	}
+}

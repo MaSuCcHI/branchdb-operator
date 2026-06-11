@@ -643,3 +643,56 @@ func TestReconcile_finalizer追加後のre_Get失敗時に正常終了する(t *
 		t.Fatal("expected error when re-Get after adding finalizer fails")
 	}
 }
+
+func TestReconcile_CredentialSecretがstatusに反映される(t *testing.T) {
+	scheme := newScheme()
+	branch := newBranch("feature-cred")
+	dbProvider := &mockDatabaseProvider{
+		startFunc: func(_ context.Context, _ string, _ domain.VolumeInfo, _, _ string) (domain.BranchEndpoint, error) {
+			return domain.BranchEndpoint{
+				Host:             "feature-cred.branchdb.svc",
+				Port:             3306,
+				ExternalPort:     30100,
+				Password:         "super-secret",
+				CredentialSecret: "branchdb-cred-feature-cred",
+			}, nil
+		},
+	}
+	r := newReconciler(scheme, []runtime.Object{branch}, &mockVolumeProvider{}, dbProvider)
+
+	_, err := reconcile(t, r, "feature-cred")
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	got := fetchBranch(t, r, "feature-cred")
+	if got.Status.CredentialSecret != "branchdb-cred-feature-cred" {
+		t.Errorf("status.CredentialSecret = %q, want branchdb-cred-feature-cred", got.Status.CredentialSecret)
+	}
+}
+
+func TestReconcile_無認証のときCredentialSecretは空のまま(t *testing.T) {
+	scheme := newScheme()
+	branch := newBranch("feature-noauth")
+	dbProvider := &mockDatabaseProvider{
+		startFunc: func(_ context.Context, _ string, _ domain.VolumeInfo, _, _ string) (domain.BranchEndpoint, error) {
+			return domain.BranchEndpoint{
+				Host:         "feature-noauth.branchdb.svc",
+				Port:         3306,
+				ExternalPort: 30101,
+				// Password と CredentialSecret は空（無認証）
+			}, nil
+		},
+	}
+	r := newReconciler(scheme, []runtime.Object{branch}, &mockVolumeProvider{}, dbProvider)
+
+	_, err := reconcile(t, r, "feature-noauth")
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	got := fetchBranch(t, r, "feature-noauth")
+	if got.Status.CredentialSecret != "" {
+		t.Errorf("status.CredentialSecret = %q, want empty (no-auth)", got.Status.CredentialSecret)
+	}
+}

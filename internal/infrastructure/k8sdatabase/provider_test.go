@@ -3,11 +3,13 @@ package k8sdatabase_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -33,6 +35,7 @@ func (n *nodePortAssigner) Create(ctx context.Context, obj client.Object, opts .
 func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
+	_ = clientgoscheme.AddToScheme(s)
 	return s
 }
 
@@ -547,6 +550,95 @@ func TestStart_PVCのvolumeNameにPV名が設定される(t *testing.T) {
 	}
 }
 
+func TestStart_PodコンテナにResourceRequests_Limitsが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProvider(c)
+
+	if _, err := p.Start(ctx, "res-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-res-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+	ctr := pod.Spec.Containers[0]
+	if ctr.Resources.Requests == nil {
+		t.Fatal("コンテナに Resources.Requests が設定されていない")
+	}
+	if _, ok := ctr.Resources.Requests[corev1.ResourceCPU]; !ok {
+		t.Error("Resources.Requests に CPU が設定されていない")
+	}
+	if _, ok := ctr.Resources.Requests[corev1.ResourceMemory]; !ok {
+		t.Error("Resources.Requests に Memory が設定されていない")
+	}
+	if ctr.Resources.Limits == nil {
+		t.Fatal("コンテナに Resources.Limits が設定されていない")
+	}
+	if _, ok := ctr.Resources.Limits[corev1.ResourceCPU]; !ok {
+		t.Error("Resources.Limits に CPU が設定されていない")
+	}
+	if _, ok := ctr.Resources.Limits[corev1.ResourceMemory]; !ok {
+		t.Error("Resources.Limits に Memory が設定されていない")
+	}
+}
+
+func TestStart_PodコンテナにsecurityContextが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProvider(c)
+
+	if _, err := p.Start(ctx, "sec-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-sec-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+	ctr := pod.Spec.Containers[0]
+	if ctr.SecurityContext == nil {
+		t.Fatal("コンテナに SecurityContext が設定されていない")
+	}
+	if ctr.SecurityContext.AllowPrivilegeEscalation == nil || *ctr.SecurityContext.AllowPrivilegeEscalation {
+		t.Error("AllowPrivilegeEscalation は false に設定されるべき")
+	}
+	if ctr.SecurityContext.Capabilities == nil {
+		t.Fatal("SecurityContext.Capabilities が設定されていない")
+	}
+	dropped := false
+	for _, c := range ctr.SecurityContext.Capabilities.Drop {
+		if c == "ALL" {
+			dropped = true
+			break
+		}
+	}
+	if !dropped {
+		t.Error("Capabilities.Drop に ALL が含まれていない")
+	}
+}
+
+func TestStart_initContainerはrootで動作しsecurityContextはそのまま(t *testing.T) {
+	// fix-permissions initContainer は root 必須のため SecurityContext を変更しない。
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProvider(c)
+
+	if _, err := p.Start(ctx, "init-sec-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-init-sec-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+	if len(pod.Spec.InitContainers) == 0 {
+		t.Fatal("InitContainer が設定されていない")
+	}
+	initC := pod.Spec.InitContainers[0]
+	if initC.SecurityContext == nil || initC.SecurityContext.RunAsUser == nil || *initC.SecurityContext.RunAsUser != 0 {
+		t.Error("fix-permissions は UID=0 (root) で動作すべき")
+	}
+}
+
 func TestStart_ConfigMapにinnodb_flush設定が含まれる(t *testing.T) {
 	ctx := context.Background()
 	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
@@ -569,4 +661,284 @@ func TestStart_ConfigMapにinnodb_flush設定が含まれる(t *testing.T) {
 		}
 	}
 	t.Errorf("ConfigMap に innodb_flush_log_at_trx_commit が含まれていない: %q", val)
+}
+
+// --- WithGeneratedAuth テスト ---
+
+func newProviderWithAuth(c client.Client) *k8sdatabase.Provider {
+	return k8sdatabase.NewProvider(&nodePortAssigner{c}, "branchdb", nil, k8sdatabase.WithGeneratedAuth(true))
+}
+
+func TestStart_WithGeneratedAuth_BranchEndpointにPasswordが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "auth-branch", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if ep.Password == "" {
+		t.Error("WithGeneratedAuth=true のとき Password が設定されるべき")
+	}
+	if ep.CredentialSecret == "" {
+		t.Error("WithGeneratedAuth=true のとき CredentialSecret が設定されるべき")
+	}
+	if !strings.HasPrefix(ep.CredentialSecret, "branchdb-cred-") {
+		t.Errorf("CredentialSecret = %q, want prefix branchdb-cred-", ep.CredentialSecret)
+	}
+}
+
+func TestStart_WithGeneratedAuth_K8sSecretが作成される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "secret-branch", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	var secret corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: ep.CredentialSecret}, &secret); err != nil {
+		t.Fatalf("Secret が作成されていない: %v", err)
+	}
+	if secret.Data["password"] == nil {
+		t.Error("Secret.Data[password] が設定されていない")
+	}
+	if string(secret.Data["password"]) != ep.Password {
+		t.Errorf("Secret.Data[password] = %q, want %q", secret.Data["password"], ep.Password)
+	}
+}
+
+func TestStart_WithGeneratedAuth_MySQL_Podに環境変数MYSQL_ROOT_PASSWORDが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "mysql-auth-branch", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-mysql-auth-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+
+	found := false
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "MYSQL_ROOT_PASSWORD" && env.Value == ep.Password {
+			found = true
+		}
+		if env.Name == "MYSQL_ALLOW_EMPTY_PASSWORD" {
+			t.Error("MYSQL_ALLOW_EMPTY_PASSWORD は WithGeneratedAuth=true のとき設定されるべきでない")
+		}
+	}
+	if !found {
+		t.Errorf("Pod に MYSQL_ROOT_PASSWORD=%q が設定されていない", ep.Password)
+	}
+}
+
+func TestStart_WithGeneratedAuth_Postgres_PodにPOSTGRES_PASSWORDが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "pg-auth-branch", testVol, "postgres", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-pg-auth-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+
+	found := false
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "POSTGRES_PASSWORD" && env.Value == ep.Password {
+			found = true
+		}
+		if env.Name == "POSTGRES_HOST_AUTH_METHOD" {
+			t.Error("POSTGRES_HOST_AUTH_METHOD は WithGeneratedAuth=true のとき設定されるべきでない")
+		}
+	}
+	if !found {
+		t.Errorf("Pod に POSTGRES_PASSWORD=%q が設定されていない", ep.Password)
+	}
+}
+
+func TestStart_WithGeneratedAuth_Redis_Podにrequirepassが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "redis-auth-branch", testVol, "redis", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-redis-auth-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+
+	found := false
+	for _, arg := range pod.Spec.Containers[0].Args {
+		if arg == ep.Password {
+			found = true
+		}
+	}
+	// --requirepass と password は Args に含まれる
+	hasRequirepass := false
+	for _, arg := range pod.Spec.Containers[0].Args {
+		if arg == "--requirepass" {
+			hasRequirepass = true
+		}
+	}
+	if !hasRequirepass {
+		t.Error("Redis Pod に --requirepass が Args に含まれていない")
+	}
+	if !found {
+		t.Errorf("Redis Pod の Args にパスワード %q が含まれていない", ep.Password)
+	}
+}
+
+func TestStart_WithGeneratedAuth_SecretにOwnerReferenceが設定される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	owner := &domain.OwnerRef{
+		Name:       "feature-y",
+		UID:        "owner-uid-5678",
+		APIVersion: "branchdb.io/v1alpha1",
+		Kind:       "DatabaseBranch",
+	}
+	ep, err := p.Start(ctx, "owner-auth-branch", testVol, "mysql", "", owner)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	var secret corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: ep.CredentialSecret}, &secret); err != nil {
+		t.Fatalf("Secret が作成されていない: %v", err)
+	}
+	if len(secret.OwnerReferences) == 0 {
+		t.Fatal("Secret に OwnerReference が設定されていない")
+	}
+	if secret.OwnerReferences[0].UID != "owner-uid-5678" {
+		t.Errorf("OwnerReference.UID = %q, want owner-uid-5678", secret.OwnerReferences[0].UID)
+	}
+}
+
+func TestStart_WithGeneratedAuthFalse_デフォルト無認証(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProvider(c) // WithGeneratedAuth なし
+
+	ep, err := p.Start(ctx, "noauth-branch", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if ep.Password != "" {
+		t.Errorf("デフォルト（無認証）では Password が空であるべき, got %q", ep.Password)
+	}
+	if ep.CredentialSecret != "" {
+		t.Errorf("デフォルト（無認証）では CredentialSecret が空であるべき, got %q", ep.CredentialSecret)
+	}
+}
+
+func TestStop_WithGeneratedAuth_Secretが削除される(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep, err := p.Start(ctx, "stop-auth-branch", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	secretName := ep.CredentialSecret
+
+	if err := p.Stop(ctx, "stop-auth-branch"); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+
+	var secret corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: secretName}, &secret); err == nil {
+		t.Error("Stop 後に Secret が残っている（削除されるべき）")
+	}
+}
+
+func TestStart_WithGeneratedAuth_パスワードがブランチごとに異なる(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	ep1, err := p.Start(ctx, "branch-uniq-1", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start branch-uniq-1 returned error: %v", err)
+	}
+	ep2, err := p.Start(ctx, "branch-uniq-2", testVol, "mysql", "", nil)
+	if err != nil {
+		t.Fatalf("Start branch-uniq-2 returned error: %v", err)
+	}
+	if ep1.Password == ep2.Password {
+		t.Error("異なるブランチのパスワードが同じ（ランダム生成されるべき）")
+	}
+}
+
+func TestStart_WithGeneratedAuth_Secret既存の場合も成功する(t *testing.T) {
+	// AlreadyExists パスのテスト: 同じブランチ名で2回 Start した場合
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	p := newProviderWithAuth(c)
+
+	// 1回目
+	if _, err := p.Start(ctx, "idempotent-auth-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("1回目の Start returned error: %v", err)
+	}
+	// 2回目（Secret が AlreadyExists となるが成功すべき）
+	if _, err := p.Start(ctx, "idempotent-auth-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("2回目の Start returned error: %v", err)
+	}
+}
+
+func TestStart_baseImageNameにコロンがない場合そのまま返す(t *testing.T) {
+	// imageOverrides でコロンなしのイメージ名を使う
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	// "mysql" というコロンなしのイメージ名を override として渡す
+	p := k8sdatabase.NewProvider(&nodePortAssigner{c}, "branchdb", map[string]string{"mysql": "customimage"})
+
+	if _, err := p.Start(ctx, "no-colon-branch", testVol, "mysql", "", nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-no-colon-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+	if pod.Spec.Containers[0].Image != "customimage" {
+		t.Errorf("image = %q, want customimage", pod.Spec.Containers[0].Image)
+	}
+}
+
+func TestStart_dbVersionとbaseImageNameのコロンなしイメージ(t *testing.T) {
+	// dbVersion を指定した場合、baseImageName からタグを除いてから dbVersion を付加する
+	// コロンのないデフォルトイメージ名（あり得ないが念の為）のテスト
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	// mysql:8.0 → base=mysql、dbVersion=9.0 → mysql:9.0
+	p := newProvider(c)
+	if _, err := p.Start(ctx, "ver-colon-branch", testVol, "mysql", "9.0", nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "branchdb", Name: "branchdb-db-ver-colon-branch"}, &pod); err != nil {
+		t.Fatalf("Pod が作成されていない: %v", err)
+	}
+	if pod.Spec.Containers[0].Image != "mysql:9.0" {
+		t.Errorf("image = %q, want mysql:9.0", pod.Spec.Containers[0].Image)
+	}
 }

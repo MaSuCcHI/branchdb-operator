@@ -74,6 +74,10 @@ spec:
               clusterPort:
                 description: ClusterPort はクラスター内からアクセスするためのポート番号を示す。
                 type: integer
+              credentialSecret:
+                description: CredentialSecret はブランチ固有のパスワードを保存する K8s Secret 名を示す。ZFSDB_BRANCH_AUTH=generated
+                  のときのみ設定される。空の場合は無認証。
+                type: string
               expiresAt:
                 description: ExpiresAt はブランチの有効期限を示す。
                 format: date-time

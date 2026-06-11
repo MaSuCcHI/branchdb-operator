@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	v1alpha1 "github.com/MaSuCcHI/branchdb-operator/api/v1alpha1"
@@ -29,18 +31,19 @@ type DatabaseBranchClient interface {
 
 // BranchResponse is the response body for K8s branch operations.
 type BranchResponse struct {
-	Name        string     `json:"name"`
-	Status      string     `json:"status"`
-	Host        string     `json:"host,omitempty"`
-	Port        int        `json:"port,omitempty"`
-	DSN         string     `json:"dsn,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Message     string     `json:"message,omitempty"`
-	ClusterHost string     `json:"cluster_host,omitempty"`
-	ClusterPort int        `json:"cluster_port,omitempty"`
-	SnapshotRef string     `json:"snapshot_ref,omitempty"`
-	TTLHours    int        `json:"ttl_hours,omitempty"`
+	Name             string     `json:"name"`
+	Status           string     `json:"status"`
+	Host             string     `json:"host,omitempty"`
+	Port             int        `json:"port,omitempty"`
+	DSN              string     `json:"dsn,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Message          string     `json:"message,omitempty"`
+	ClusterHost      string     `json:"cluster_host,omitempty"`
+	ClusterPort      int        `json:"cluster_port,omitempty"`
+	SnapshotRef      string     `json:"snapshot_ref,omitempty"`
+	TTLHours         int        `json:"ttl_hours,omitempty"`
+	CredentialSecret string     `json:"credential_secret,omitempty"` // Secret 名（生成認証有効時のみ）
 }
 
 // K8sStats holds phase counts for all branches.
@@ -126,7 +129,8 @@ func isValidBranchName(name string) bool {
 }
 
 // mysqlQuerier は MySQL の接続数を取得する関数型。テストで差し替え可能にするための内部 DI。
-type mysqlQuerier func(ctx context.Context, clusterHost string) (threads int, err error)
+// password が空の場合は無認証（MYSQL_ALLOW_EMPTY_PASSWORD=yes と対応）で接続する。
+type mysqlQuerier func(ctx context.Context, clusterHost, password string) (threads int, err error)
 
 // K8sBranchHandler handles branch CRUD via DatabaseBranch CRs.
 // ExternalPort は NodePort として K8s が割り当てるため、ハンドラ側でポート管理は行わない。
@@ -136,8 +140,9 @@ type K8sBranchHandler struct {
 	externalHost     string
 	namespace        string
 	portWaitTimeout  time.Duration
-	resetWaitTimeout time.Duration // handleResetDataset で CR の消化を待つタイムアウト
-	mysqlQuerier     mysqlQuerier  // nil = realMySQLQuerier を使用
+	resetWaitTimeout time.Duration                   // handleResetDataset で CR の消化を待つタイムアウト
+	mysqlQuerier     mysqlQuerier                    // nil = realMySQLQuerier を使用
+	authMiddleware   func(http.Handler) http.Handler // optional; nil = 認証なし（後方互換）
 }
 
 // NewK8sBranchHandler creates a new K8sBranchHandler. Namespace defaults to "default".
@@ -169,7 +174,7 @@ func (h *K8sBranchHandler) WithVolumeProvider(vp domain.VolumeProvider) *K8sBran
 }
 
 // WithMySQLQuerier overrides the MySQL metrics querier for testing.
-func (h *K8sBranchHandler) WithMySQLQuerier(q func(ctx context.Context, clusterHost string) (int, error)) *K8sBranchHandler {
+func (h *K8sBranchHandler) WithMySQLQuerier(q func(ctx context.Context, clusterHost, password string) (int, error)) *K8sBranchHandler {
 	h.mysqlQuerier = q
 	return h
 }
@@ -178,6 +183,34 @@ func (h *K8sBranchHandler) WithMySQLQuerier(q func(ctx context.Context, clusterH
 func (h *K8sBranchHandler) WithResetWaitTimeout(d time.Duration) *K8sBranchHandler {
 	h.resetWaitTimeout = d
 	return h
+}
+
+// WithAuthMiddleware は全 API ルート（/health と静的アセットを除く）に適用する
+// 認証ミドルウェアを設定する。nil を渡すと無認証（後方互換）になる。
+// Pro 境界の注入口として設計されており、OIDC 等のミドルウェアを後から差し込める。
+func (h *K8sBranchHandler) WithAuthMiddleware(mw func(http.Handler) http.Handler) *K8sBranchHandler {
+	h.authMiddleware = mw
+	return h
+}
+
+// BearerTokenMiddleware は静的トークンによる Bearer 認証ミドルウェアを返す。
+// タイミング攻撃を防ぐため crypto/subtle.ConstantTimeCompare でトークンを比較する。
+func BearerTokenMiddleware(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			got := strings.TrimPrefix(authHeader, "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type k8sCreateRequest struct {
@@ -246,7 +279,7 @@ func (h *K8sBranchHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 
 	created := h.pollForPort(r.Context(), req.Name, h.portWaitTimeout, 100*time.Millisecond)
 
-	resp := h.toBranchResponse(created)
+	resp := h.toBranchResponseWithContext(r.Context(), created)
 	resp.Status = "creating"
 	writeJSON(w, http.StatusAccepted, resp)
 }
@@ -284,7 +317,7 @@ func (h *K8sBranchHandler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]BranchResponse, len(list.Items))
 	for i := range list.Items {
-		resp[i] = h.toBranchResponse(&list.Items[i])
+		resp[i] = h.toBranchResponseWithContext(r.Context(), &list.Items[i])
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -300,7 +333,7 @@ func (h *K8sBranchHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, h.toBranchResponse(&cr))
+	writeJSON(w, http.StatusOK, h.toBranchResponseWithContext(r.Context(), &cr))
 }
 
 func (h *K8sBranchHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -406,7 +439,10 @@ func (h *K8sBranchHandler) handleGetMetrics(w http.ResponseWriter, r *http.Reque
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	threads, err := q(ctx, cr.Status.ClusterHost)
+	// パスワードが設定されている場合は Secret から読み込む
+	password := h.readBranchPassword(ctx, &cr)
+
+	threads, err := q(ctx, cr.Status.ClusterHost, password)
 	if err != nil {
 		writeJSON(w, http.StatusOK, BranchMetrics{Available: false, ErrorMsg: err.Error()})
 		return
@@ -597,15 +633,20 @@ func (h *K8sBranchHandler) waitForCRsDeletion(ctx context.Context, dbType string
 }
 
 func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchResponse {
+	return h.toBranchResponseWithContext(context.Background(), cr)
+}
+
+func (h *K8sBranchHandler) toBranchResponseWithContext(ctx context.Context, cr *v1alpha1.DatabaseBranch) BranchResponse {
 	resp := BranchResponse{
-		Name:        cr.Name,
-		Status:      string(cr.Status.Phase),
-		CreatedAt:   cr.CreationTimestamp.Time,
-		Message:     cr.Status.Message,
-		ClusterHost: cr.Status.ClusterHost,
-		ClusterPort: cr.Status.ClusterPort,
-		SnapshotRef: cr.Spec.SnapshotRef,
-		TTLHours:    cr.Spec.TTLHours,
+		Name:             cr.Name,
+		Status:           string(cr.Status.Phase),
+		CreatedAt:        cr.CreationTimestamp.Time,
+		Message:          cr.Status.Message,
+		ClusterHost:      cr.Status.ClusterHost,
+		ClusterPort:      cr.Status.ClusterPort,
+		SnapshotRef:      cr.Spec.SnapshotRef,
+		TTLHours:         cr.Spec.TTLHours,
+		CredentialSecret: cr.Status.CredentialSecret,
 	}
 	if resp.Status == "" {
 		resp.Status = "creating"
@@ -619,10 +660,30 @@ func (h *K8sBranchHandler) toBranchResponse(cr *v1alpha1.DatabaseBranch) BranchR
 	if cr.Status.ExternalPort > 0 {
 		resp.Port = cr.Status.ExternalPort
 		resp.Host = h.externalHost
-		resp.DSN = fmt.Sprintf("root@tcp(%s:%d)/", h.externalHost, cr.Status.ExternalPort)
+
+		// パスワードが Secret に保存されている場合は DSN に含める。
+		password := h.readBranchPassword(ctx, cr)
+		if password != "" {
+			resp.DSN = fmt.Sprintf("root:%s@tcp(%s:%d)/", password, h.externalHost, cr.Status.ExternalPort)
+		} else {
+			resp.DSN = fmt.Sprintf("root@tcp(%s:%d)/", h.externalHost, cr.Status.ExternalPort)
+		}
 	}
 
 	return resp
+}
+
+// readBranchPassword は CR の status.credentialSecret から Opaque Secret を読み password を返す。
+// Secret が存在しない・読めない・認証が無効の場合は空文字を返す（エラーにはしない）。
+func (h *K8sBranchHandler) readBranchPassword(ctx context.Context, cr *v1alpha1.DatabaseBranch) string {
+	if cr.Status.CredentialSecret == "" {
+		return ""
+	}
+	var secret corev1.Secret
+	if err := h.k8sClient.Get(ctx, types.NamespacedName{Name: cr.Status.CredentialSecret, Namespace: h.namespace}, &secret); err != nil {
+		return ""
+	}
+	return string(secret.Data["password"])
 }
 
 // isNotFound checks if the error is a Kubernetes NotFound error.
@@ -632,38 +693,62 @@ func isNotFound(err error) bool {
 
 // NewK8sRouter creates an http.Handler for the K8s mode API.
 // Pass a non-nil hub to enable the WebSocket broadcast endpoint at /ws.
+// h.authMiddleware が設定されている場合は /health と静的アセット以外の全ルートに適用する。
 func NewK8sRouter(h *K8sBranchHandler, hub ...*WSHub) http.Handler {
 	r := chi.NewRouter()
-	r.Get("/branches", h.handleList)
-	r.Post("/branches", h.handleCreate)
-	r.Get("/branches/{name}", h.handleGet)
-	r.Delete("/branches/{name}", h.handleDelete)
-	r.Get("/branches/{name}/pod", h.handleGetPod)
-	r.Get("/branches/{name}/metrics", h.handleGetMetrics)
-	r.Get("/stats", h.handleStats)
-	r.Get("/snapshots", h.handleListSnapshots)
-	r.Post("/snapshots", h.handleTakeSnapshot)
-	r.Delete("/snapshots/{name}", h.handleDeleteSnapshot)
-	r.Post("/snapshots/reset", h.handleResetDataset)
-	r.Post("/gc", h.handleGC)
+
+	// /health と SPA 静的アセットは認証不要
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	if len(hub) > 0 && hub[0] != nil {
-		r.Get("/ws", hub[0].ServeWS)
-	}
 	r.Get("/openapi.yaml", serveOpenAPISpec)
 	r.Get("/docs", serveSwaggerUI)
 	r.Get("/", serveK8sSPA)
 	r.Get("/assets/*", k8sStaticHandler().ServeHTTP)
 	r.Get("/favicon.svg", k8sStaticHandler().ServeHTTP)
 	r.Get("/icons.svg", k8sStaticHandler().ServeHTTP)
+
+	// API ルートグループ: authMiddleware が設定されていれば適用する
+	apiRoutes := func(r chi.Router) {
+		r.Get("/branches", h.handleList)
+		r.Post("/branches", h.handleCreate)
+		r.Get("/branches/{name}", h.handleGet)
+		r.Delete("/branches/{name}", h.handleDelete)
+		r.Get("/branches/{name}/pod", h.handleGetPod)
+		r.Get("/branches/{name}/metrics", h.handleGetMetrics)
+		r.Get("/stats", h.handleStats)
+		r.Get("/snapshots", h.handleListSnapshots)
+		r.Post("/snapshots", h.handleTakeSnapshot)
+		r.Delete("/snapshots/{name}", h.handleDeleteSnapshot)
+		r.Post("/snapshots/reset", h.handleResetDataset)
+		r.Post("/gc", h.handleGC)
+		if len(hub) > 0 && hub[0] != nil {
+			r.Get("/ws", hub[0].ServeWS)
+		}
+	}
+
+	if h.authMiddleware != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(h.authMiddleware)
+			apiRoutes(r)
+		})
+	} else {
+		r.Group(apiRoutes)
+	}
+
 	return r
 }
 
 // realMySQLQuerier は MySQL に接続して Threads_connected を返す本番実装。
-func realMySQLQuerier(ctx context.Context, clusterHost string) (int, error) {
-	return queryMySQLThreads(ctx, "mysql", fmt.Sprintf("root@tcp(%s:3306)/", clusterHost))
+// password が空の場合は無認証 DSN（MYSQL_ALLOW_EMPTY_PASSWORD=yes 相当）を使用する。
+func realMySQLQuerier(ctx context.Context, clusterHost, password string) (int, error) {
+	var dsn string
+	if password != "" {
+		dsn = fmt.Sprintf("root:%s@tcp(%s:3306)/", password, clusterHost)
+	} else {
+		dsn = fmt.Sprintf("root@tcp(%s:3306)/", clusterHost)
+	}
+	return queryMySQLThreads(ctx, "mysql", dsn)
 }
 
 // queryMySQLThreads は指定ドライバで MySQL に接続して Threads_connected を取得する。

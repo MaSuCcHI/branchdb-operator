@@ -101,3 +101,35 @@ func TestBranchEndpoint_ExternalPort(t *testing.T) {
 		t.Errorf("ExternalPort = %d", ep.ExternalPort)
 	}
 }
+
+func TestBranchEndpoint_PasswordAndCredentialSecret(t *testing.T) {
+	ep := domain.BranchEndpoint{
+		Host:             "svc.default.svc.cluster.local",
+		Port:             3306,
+		ExternalPort:     30001,
+		Password:         "s3cr3t",
+		CredentialSecret: "branchdb-cred-feature-x",
+	}
+	if ep.Password != "s3cr3t" {
+		t.Errorf("Password = %q, want s3cr3t", ep.Password)
+	}
+	if ep.CredentialSecret != "branchdb-cred-feature-x" {
+		t.Errorf("CredentialSecret = %q, want branchdb-cred-feature-x", ep.CredentialSecret)
+	}
+	// DSN にはパスワードが反映される
+	got := ep.DSN("root", ep.Password)
+	want := "root:s3cr3t@tcp(svc.default.svc.cluster.local:3306)/"
+	if got != want {
+		t.Errorf("DSN() = %q, want %q", got, want)
+	}
+}
+
+func TestBranchEndpoint_EmptyPasswordCredentialSecretデフォルト無認証(t *testing.T) {
+	ep := domain.BranchEndpoint{Host: "svc", Port: 3306}
+	if ep.Password != "" {
+		t.Errorf("Password should be empty by default, got %q", ep.Password)
+	}
+	if ep.CredentialSecret != "" {
+		t.Errorf("CredentialSecret should be empty by default, got %q", ep.CredentialSecret)
+	}
+}

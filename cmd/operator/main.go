@@ -57,6 +57,9 @@ func main() {
 		"postgres": getEnv("ZFSDB_POSTGRES_IMAGE", ""),
 		"redis":    getEnv("ZFSDB_REDIS_IMAGE", ""),
 	}
+	// ZFSDB_BRANCH_AUTH=generated のとき、各ブランチにランダムパスワードを生成して Secret に保存する。
+	// デフォルト（未設定）は後方互換のため無認証で動作する。
+	branchAuthMode := getEnv("ZFSDB_BRANCH_AUTH", "")
 
 	if externalHost == "" {
 		setupLog.Info("Warning: ZFSDB_EXTERNAL_HOST is not set; external connectivity will use empty host")
@@ -83,7 +86,9 @@ func main() {
 	// VolumeProvider: ZFS clone/snapshot operations are delegated to the ZFS Agent over HTTP.
 	// DatabaseProvider: per-branch database runs as a Pod+PVC+Service in the cluster.
 	volumeProvider := zfsagent.NewProvider(zfsAgentURL, zfsAgentToken)
-	dbProvider := k8sdatabase.NewProvider(mgr.GetClient(), namespace, imageOverrides)
+	dbProvider := k8sdatabase.NewProvider(mgr.GetClient(), namespace, imageOverrides,
+		k8sdatabase.WithGeneratedAuth(branchAuthMode == "generated"),
+	)
 
 	reconciler := &operator.DatabaseBranchReconciler{
 		Client:           mgr.GetClient(),

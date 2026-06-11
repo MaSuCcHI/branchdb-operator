@@ -145,6 +145,40 @@ func TestHandler_誤ったトークンのリクエストは401を返す(t *testi
 	}
 }
 
+// TestHandler_タイミング攻撃耐性のあるトークン比較
+// crypto/subtle.ConstantTimeCompare を使っているため、正しいトークンでも
+// 誤ったトークンでも同じ HTTP 応答が返ることを確認する（動作の等価性テスト）。
+func TestHandler_定数時間トークン比較で正しいトークンは200を返す(t *testing.T) {
+	provider := &mockVolumeProvider{
+		listSnapshotsFunc: func(ctx context.Context) ([]domain.SnapshotInfo, error) {
+			return nil, nil
+		},
+	}
+	router := newRouter(provider)
+
+	req := authorizedRequest(http.MethodGet, "/snapshots", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("got status %d, want 200 with correct token", w.Code)
+	}
+}
+
+func TestHandler_定数時間トークン比較でBearerプレフィックスなしは401を返す(t *testing.T) {
+	provider := &mockVolumeProvider{}
+	router := newRouter(provider)
+
+	req := httptest.NewRequest(http.MethodGet, "/snapshots", nil)
+	req.Header.Set("Authorization", testToken) // Bearer プレフィックスなし
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("got status %d, want 401 without Bearer prefix", w.Code)
+	}
+}
+
 // --- スナップショット作成テスト ---
 
 func TestHandler_正常なスナップショット作成は201を返す(t *testing.T) {

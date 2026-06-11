@@ -8,6 +8,7 @@
 //	ZFSDB_NAMESPACE       Kubernetes namespace (default: default)
 //	ZFSDB_ZFSAGENT_URL    ZFS Agent URL; enables snapshot API when set
 //	ZFSDB_ZFSAGENT_TOKEN  ZFS Agent auth token
+//	ZFSDB_API_TOKEN       Static Bearer token for API authentication; omit to disable auth (backwards-compatible)
 package main
 
 import (
@@ -68,6 +69,13 @@ func run() error {
 		handler = handler.WithVolumeProvider(
 			zfsagent.NewProvider(url, envOr("ZFSDB_ZFSAGENT_TOKEN", "")),
 		)
+	}
+
+	// ZFSDB_API_TOKEN が設定されている場合にのみ Bearer 認証を有効化する。
+	// 未設定の場合は後方互換のため認証なしで動作する。
+	if apiToken := envOr("ZFSDB_API_TOKEN", ""); apiToken != "" {
+		handler = handler.WithAuthMiddleware(api.BearerTokenMiddleware(apiToken))
+		log.Printf("branchdb: API authentication enabled (ZFSDB_API_TOKEN set)")
 	}
 
 	router := api.NewK8sRouter(handler)

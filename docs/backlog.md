@@ -100,25 +100,31 @@
 
 ## P2: セキュリティ
 
-- [ ] **ブランチ DB が無認証で NodePort 公開される**
+- [x] **ブランチ DB が無認証で NodePort 公開される**
   MySQL: `MYSQL_ALLOW_EMPTY_PASSWORD=yes`、PostgreSQL: `trust`（`k8sdatabase/provider.go:60,74`）。
   開発用途とはいえ NodePort で外部公開されるため、最低限「ブランチごとに生成した
   パスワードを Status / API レスポンスで返す」オプションを追加し、README に現状の
   リスクを明記する。
+  → `WithGeneratedAuth(true)` / `ZFSDB_BRANCH_AUTH=generated` を実装。Secret + DSN に反映済み。
+  README.md・README.ja.md にリスクと有効化手順を追記済み。
 
-- [ ] **Bearer トークン比較がタイミング攻撃可能**
+- [x] **Bearer トークン比較がタイミング攻撃可能**
   `internal/interface/api/zfsagent/handler.go:95` — `crypto/subtle.ConstantTimeCompare` を使う。
+  → 実装済み。
 
-- [ ] **branchdb API が完全無認証（破壊的操作含む）**
+- [x] **branchdb API が完全無認証（破壊的操作含む）**
   `/snapshots/reset`・`/gc`・`DELETE /branches` が誰でも叩ける。OIDC はロードマップの
   Pro 機能だが、暫定で静的トークンのミドルウェア（`WithAuthMiddleware` の注入口）を
   先に用意しておくと Pro 境界の設計も進む。
+  → `BearerTokenMiddleware` / `WithAuthMiddleware` を実装、`ZFSDB_API_TOKEN` で cmd 配線済み。
 
-- [ ] **WebSocket の `CheckOrigin` が常に true**
+- [x] **WebSocket の `CheckOrigin` が常に true**
   `internal/interface/api/ws_hub.go:12-14` — 同一オリジン検証を入れる。
+  → 実装済み。
 
-- [ ] **DB Pod に resource requests/limits・securityContext がない**
+- [x] **DB Pod に resource requests/limits・securityContext がない**
   `k8sdatabase/provider.go:295-329` — ノイジーネイバー対策と PodSecurity 対応。
+  → 実装済み。
 
 ## P3: リファクタリング・デッドコード
 
