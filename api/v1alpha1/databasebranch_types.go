@@ -74,6 +74,12 @@ type DatabaseBranchStatus struct {
 	// ExpiresAt はブランチの有効期限を示す。
 	// +optional
 	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
+
+	// CredentialSecret はブランチ固有のパスワードを保存する K8s Secret 名を示す。
+	// ZFSDB_BRANCH_AUTH=generated のときのみ設定される。空の場合は無認証。
+	// Secret の内容を直接 status に含めることなく、参照のみを保存する。
+	// +optional
+	CredentialSecret string `json:"credentialSecret,omitempty"`
 }
 
 // DatabaseBranch は BranchDB が管理するデータベースブランチを表す。

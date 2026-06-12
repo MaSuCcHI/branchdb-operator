@@ -33,9 +33,11 @@ type BranchMySQLProvider = BranchDatabaseProvider
 
 // BranchEndpoint はブランチデータベースへの接続情報を保持する値型。
 type BranchEndpoint struct {
-	Host         string // ClusterIP Service の DNS 名
-	Port         int    // デフォルトポート（MySQL=3306, PostgreSQL=5432, Redis=6379）
-	ExternalPort int    // NodePort（K8s モードのみ。0 = 未割当）
+	Host             string // ClusterIP Service の DNS 名
+	Port             int    // デフォルトポート（MySQL=3306, PostgreSQL=5432, Redis=6379）
+	ExternalPort     int    // NodePort（K8s モードのみ。0 = 未割当）
+	Password         string // ブランチ固有パスワード（生成認証有効時のみ設定。空 = 無認証）
+	CredentialSecret string // パスワードを保存する K8s Secret 名（空 = 無認証）
 }
 
 // DSN はユーザーとパスワードを含む DSN 文字列を返す。MySQL 形式。

@@ -73,6 +73,8 @@ interface/
 | `ZFSDB_NAMESPACE` | `default` | DatabaseBranch CR の名前空間 |
 | `ZFSDB_ZFSAGENT_URL` | *(未設定)* | ZFS Agent URL（設定時のみスナップショット API 有効） |
 | `ZFSDB_ZFSAGENT_TOKEN` | *(未設定)* | ZFS Agent 認証トークン |
+| `ZFSDB_API_TOKEN` | *(未設定)* | branchdb API の静的 Bearer トークン（設定時のみ認証有効、未設定は後方互換の無認証） |
+| `ZFSDB_BRANCH_AUTH` | *(未設定)* | `generated` を設定するとブランチごとにランダムパスワードを生成して Secret に保存する。デフォルトは無認証。 |
 | `ZFSAGENT_ADDR` | `:9090` | ZFS Agent のリッスンアドレス |
 | `ZFSAGENT_TOKEN` | *(必須)* | ZFS Agent 認証トークン |
 | `ZFSAGENT_POOL` | `tank` | ZFS pool 名（シングルデータセット時） |

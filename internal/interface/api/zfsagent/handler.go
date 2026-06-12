@@ -2,6 +2,7 @@ package zfsagent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,14 +42,18 @@ type Handler struct {
 }
 
 // NewHandler は Handler を生成する。
-// providers が単一エントリのときのみ defaultType を設定する。
-// 複数エントリの場合は defaultType は空となり、db_type クエリパラメータが必須になる。
+// defaultType は db_type クエリパラメータ省略時に使用するプロバイダーで、
+// 単一エントリならそのエントリ、複数エントリなら "mysql"（存在する場合）を決定的に選ぶ。
+// mysql を含まない複数エントリ構成では defaultType は空となり、db_type が必須になる。
 func NewHandler(providers map[string]AgentVolumeProvider, token string) *Handler {
 	defaultType := ""
 	if len(providers) == 1 {
 		for k := range providers {
 			defaultType = k
 		}
+	} else if _, ok := providers["mysql"]; ok {
+		// システム全体の慣例（db_type 省略 = mysql）に合わせる。
+		defaultType = "mysql"
 	}
 	return &Handler{providers: providers, defaultType: defaultType, token: token}
 }
@@ -93,6 +98,7 @@ func (h *Handler) pickProvider(r *http.Request) (AgentVolumeProvider, error) {
 }
 
 // authMiddleware は Bearer トークン認証を行う。
+// タイミング攻撃を防ぐため crypto/subtle.ConstantTimeCompare でトークンを比較する。
 func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -101,7 +107,7 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token != h.token {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(h.token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}

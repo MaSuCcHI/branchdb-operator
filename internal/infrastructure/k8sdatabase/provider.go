@@ -4,6 +4,8 @@ package k8sdatabase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	goerrors "errors"
 	"fmt"
 
@@ -16,6 +18,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/MaSuCcHI/branchdb-operator/internal/domain"
+)
+
+// defaultContainerRequests / defaultContainerLimits は DB Pod の resource requests/limits のデフォルト値。
+// ノイジーネイバー対策と PodSecurity Policy への準拠のためにハードコードする。
+const (
+	defaultCPURequest    = "100m"
+	defaultMemoryRequest = "256Mi"
+	defaultCPULimit      = "2"
+	defaultMemoryLimit   = "2Gi"
 )
 
 // nfsMountOptions は NFS ボリューム上でデータベースを動かすために必要なマウントオプション。
@@ -99,21 +110,50 @@ type Provider struct {
 	client         client.Client
 	namespace      string
 	imageOverrides map[string]string // dbType -> image override（空文字列はデフォルトを使用）
+	generatedAuth  bool              // true のとき各ブランチにランダムパスワードを生成して Secret に保存する
+}
+
+// ProviderOption は Provider の動作を設定する関数型オプション。
+type ProviderOption func(*Provider)
+
+// WithGeneratedAuth はブランチごとにランダムパスワードを生成する機能を有効/無効化する。
+// 有効時: パスワードを K8s Secret（branchdb-cred-<branch>）に保存し、DB Pod の環境変数/引数に設定する。
+// デフォルト（false）は後方互換のため無認証で動作する。
+func WithGeneratedAuth(enabled bool) ProviderOption {
+	return func(p *Provider) { p.generatedAuth = enabled }
 }
 
 // NewProvider は Provider を生成する。
 // imageOverrides でデフォルトイメージを上書きできる（例: {"mysql": "mysql:8.4"}）。
-func NewProvider(c client.Client, namespace string, imageOverrides map[string]string) *Provider {
+// opts には WithGeneratedAuth など ProviderOption を指定できる。
+func NewProvider(c client.Client, namespace string, imageOverrides map[string]string, opts ...ProviderOption) *Provider {
 	if imageOverrides == nil {
 		imageOverrides = map[string]string{}
 	}
-	return &Provider{client: c, namespace: namespace, imageOverrides: imageOverrides}
+	p := &Provider{client: c, namespace: namespace, imageOverrides: imageOverrides}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+// credSecretName はブランチ名から Credential Secret 名を生成する。
+func credSecretName(branchName string) string { return fmt.Sprintf("branchdb-cred-%s", branchName) }
+
+// generatePassword は URL-safe な 24 文字のランダムパスワードを生成する。
+func generatePassword() (string, error) {
+	b := make([]byte, 18) // base64 で 24 文字になる
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate password: %w", err)
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 // Start は K8s 上に PV, PVC, (ConfigMap), Pod, Service を作成し BranchEndpoint を返す。
 // dbType が空の場合は "mysql" として扱う。
 // dbVersion が空の場合は dbType のデフォルトイメージタグを使用する。
 // owner が非 nil の場合は全リソースに OwnerReference を設定する。
+// generatedAuth=true のときはブランチ固有のパスワードを生成し、Secret に保存して BranchEndpoint に返す。
 func (p *Provider) Start(ctx context.Context, branchName string, vol domain.VolumeInfo, dbType, dbVersion string, owner *domain.OwnerRef) (domain.BranchEndpoint, error) {
 	if dbType == "" {
 		dbType = "mysql"
@@ -123,38 +163,103 @@ func (p *Provider) Start(ctx context.Context, branchName string, vol domain.Volu
 		return domain.BranchEndpoint{}, fmt.Errorf("unsupported database type: %q (supported: mysql, postgres, redis)", dbType)
 	}
 
+	// パスワード生成（generatedAuth=true のみ）
+	var password string
+	if p.generatedAuth {
+		var err error
+		password, err = generatePassword()
+		if err != nil {
+			return domain.BranchEndpoint{}, err
+		}
+	}
+
+	// パスワードが設定されている場合は cfg の認証設定を上書きする
+	effectiveCfg := applyAuthToCfg(cfg, dbType, password)
+
 	image := p.resolveImage(cfg, dbType, dbVersion)
 
 	ownerRefs := buildOwnerRefs(owner)
+
+	// Secret を先に作成（Pod が参照するため）
+	if password != "" {
+		if err := p.createCredSecret(ctx, branchName, password, ownerRefs); err != nil {
+			return domain.BranchEndpoint{}, fmt.Errorf("create credential secret: %w", err)
+		}
+	}
+
 	if err := p.createPV(ctx, branchName, vol, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create PV: %w", err)
 	}
 	if err := p.createPVC(ctx, branchName, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create PVC: %w", err)
 	}
-	if cfg.extraConfig != "" {
-		if err := p.createConfigMap(ctx, branchName, cfg, ownerRefs); err != nil {
+	if effectiveCfg.extraConfig != "" {
+		if err := p.createConfigMap(ctx, branchName, effectiveCfg, ownerRefs); err != nil {
 			return domain.BranchEndpoint{}, fmt.Errorf("create ConfigMap: %w", err)
 		}
 	}
-	if err := p.createPod(ctx, branchName, image, cfg, ownerRefs); err != nil {
+	if err := p.createPod(ctx, branchName, image, effectiveCfg, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create Pod: %w", err)
 	}
-	if err := p.createService(ctx, branchName, cfg.port, ownerRefs); err != nil {
+	if err := p.createService(ctx, branchName, effectiveCfg.port, ownerRefs); err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("create Service: %w", err)
 	}
 	nodePort, err := p.getNodePort(ctx, branchName)
 	if err != nil {
 		return domain.BranchEndpoint{}, fmt.Errorf("get NodePort: %w", err)
 	}
-	return domain.BranchEndpoint{
+
+	ep := domain.BranchEndpoint{
 		Host:         fmt.Sprintf("%s.%s.svc.cluster.local", svcName(branchName), p.namespace),
-		Port:         int(cfg.port),
+		Port:         int(effectiveCfg.port),
 		ExternalPort: nodePort,
-	}, nil
+	}
+	if password != "" {
+		ep.Password = password
+		ep.CredentialSecret = credSecretName(branchName)
+	}
+	return ep, nil
 }
 
-// Stop は K8s 上の Service, Pod, ConfigMap, PVC, PV を削除する。
+// applyAuthToCfg は生成されたパスワードを dbConfig に反映した新しい dbConfig を返す。
+// password が空の場合は元の cfg をそのまま返す。
+func applyAuthToCfg(cfg dbConfig, dbType, password string) dbConfig {
+	if password == "" {
+		return cfg
+	}
+	out := cfg // コピー
+	switch dbType {
+	case "mysql":
+		// MYSQL_ALLOW_EMPTY_PASSWORD を除去し MYSQL_ROOT_PASSWORD を設定する
+		newEnv := make([]corev1.EnvVar, 0, len(cfg.containerEnv))
+		for _, e := range cfg.containerEnv {
+			if e.Name != "MYSQL_ALLOW_EMPTY_PASSWORD" {
+				newEnv = append(newEnv, e)
+			}
+		}
+		newEnv = append(newEnv, corev1.EnvVar{Name: "MYSQL_ROOT_PASSWORD", Value: password})
+		out.containerEnv = newEnv
+	case "postgres":
+		// POSTGRES_HOST_AUTH_METHOD=trust を除去し POSTGRES_PASSWORD を設定する
+		newEnv := make([]corev1.EnvVar, 0, len(cfg.containerEnv))
+		for _, e := range cfg.containerEnv {
+			if e.Name != "POSTGRES_HOST_AUTH_METHOD" {
+				newEnv = append(newEnv, e)
+			}
+		}
+		newEnv = append(newEnv, corev1.EnvVar{Name: "POSTGRES_PASSWORD", Value: password})
+		out.containerEnv = newEnv
+	case "redis":
+		// --requirepass <password> を containerArgs に追加する
+		newArgs := make([]string, len(cfg.containerArgs), len(cfg.containerArgs)+2)
+		copy(newArgs, cfg.containerArgs)
+		newArgs = append(newArgs, "--requirepass", password)
+		out.containerArgs = newArgs
+	}
+	return out
+}
+
+// Stop は K8s 上の Service, Pod, ConfigMap, PVC, PV, (Credential Secret) を削除する。
 // NotFound エラーは無視し（リソースが既に存在しない場合）、それ以外のエラーは集約して返す。
 func (p *Provider) Stop(ctx context.Context, branchName string) error {
 	var errs []error
@@ -184,7 +289,34 @@ func (p *Provider) Stop(ctx context.Context, branchName string) error {
 		errs = append(errs, fmt.Errorf("delete PV: %w", err))
 	}
 
+	// Credential Secret は generatedAuth の有無にかかわらず削除を試みる（NotFound は無視）。
+	// ownerRef が設定されていれば K8s GC でも消えるが、明示的に削除して確実にする。
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: credSecretName(branchName), Namespace: p.namespace}}
+	if err := p.client.Delete(ctx, secret); err != nil && !errors.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("delete credential secret: %w", err))
+	}
+
 	return goerrors.Join(errs...)
+}
+
+// createCredSecret はブランチ固有のパスワードを保存する K8s Secret を作成する。
+func (p *Provider) createCredSecret(ctx context.Context, branchName, password string, ownerRefs []metav1.OwnerReference) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            credSecretName(branchName),
+			Namespace:       p.namespace,
+			OwnerReferences: ownerRefs,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"password": []byte(password),
+		},
+	}
+	err := p.client.Create(ctx, secret)
+	if errors.IsAlreadyExists(err) {
+		return nil
+	}
+	return err
 }
 
 // resolveImage はイメージを決定する。優先順位: dbVersion引数 > imageOverrides > builtinDefaults
@@ -331,6 +463,7 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 		})
 	}
 
+	allowPrivEsc := false
 	spec := corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -345,6 +478,27 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 					},
 					InitialDelaySeconds: initialDelay,
 					PeriodSeconds:       period,
+				},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse(defaultCPURequest),
+						corev1.ResourceMemory: resource.MustParse(defaultMemoryRequest),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse(defaultCPULimit),
+						corev1.ResourceMemory: resource.MustParse(defaultMemoryLimit),
+					},
+				},
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: &allowPrivEsc,
+					Capabilities: &corev1.Capabilities{
+						Drop: []corev1.Capability{"ALL"},
+						// 公式 DB イメージは root で entrypoint を実行し、setuid/setgid で
+						// DB ユーザーへ降格してから datadir を chown する。その動作に必要な
+						// 最小限の capability のみ戻す（無いと mysqld が
+						// "setgid: Operation not permitted" で起動に失敗する）。
+						Add: []corev1.Capability{"SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE", "FOWNER"},
+					},
 				},
 			},
 		},

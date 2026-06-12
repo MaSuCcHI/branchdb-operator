@@ -26,7 +26,9 @@ mounts:
     writable: true
 
 # ネットワーク: DNS を明示して VM 内からインターネットに接続できるようにする
+# address: ホストから到達可能な専用 IP を VM に割り当てる（NFS / NodePort 接続に必須）
 network:
+  address: true
   dns:
     - 8.8.8.8
     - 8.8.4.4

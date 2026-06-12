@@ -169,11 +169,23 @@ make manifests
 | `ZFSDB_NAMESPACE` | `default` | Namespace for DatabaseBranch CRs |
 | `ZFSDB_ZFSAGENT_URL` | *(unset)* | ZFS Agent URL — enables snapshot API |
 | `ZFSDB_ZFSAGENT_TOKEN` | *(unset)* | ZFS Agent auth token |
+| `ZFSDB_API_TOKEN` | *(unset)* | Static Bearer token for the branchdb REST API. When set, all API routes (except `/health`) require `Authorization: Bearer <token>`. Omit for backwards-compatible unauthenticated mode. |
+| `ZFSDB_BRANCH_AUTH` | *(unset)* | Set to `generated` to have the Operator create a random password per branch and store it in a `branchdb-cred-<branch>` Secret. The password appears in the API response DSN. Defaults to unauthenticated (`MYSQL_ALLOW_EMPTY_PASSWORD`, PostgreSQL `trust`). |
 | `ZFSAGENT_ADDR` | `:9090` | ZFS Agent listen address |
 | `ZFSAGENT_TOKEN` | *(required)* | ZFS Agent auth token |
 | `ZFSAGENT_POOL` | `tank` | ZFS pool name (single-dataset mode) |
 | `ZFSAGENT_DATASET` | `mysql` | ZFS dataset name (single-dataset mode) |
 | `ZFSAGENT_DATASETS` | *(unset)* | Multi-dataset map, e.g. `mysql:tank/mysql,postgres:tank/postgres` |
+
+### Security Considerations
+
+By default, branch databases are exposed via NodePort **without a password** (MySQL uses `MYSQL_ALLOW_EMPTY_PASSWORD=yes`, PostgreSQL uses `trust` authentication). This is intentional for frictionless development workflows, but it means **any host that can reach the NodePort can connect without credentials**.
+
+**Recommendations for shared or semi-public environments:**
+
+- Set `ZFSDB_BRANCH_AUTH=generated` on the Operator to enable per-branch random passwords. The password is stored in a `branchdb-cred-<branch>` Kubernetes Secret (with ownerRef for automatic cleanup) and is returned as part of the connection DSN in the API response.
+- Set `ZFSDB_API_TOKEN=<strong-random-token>` on the branchdb API server to protect the REST API (branch create/delete, snapshot reset, GC). Without this, anyone who can reach the API endpoint can perform destructive operations.
+- Consider using a NetworkPolicy to restrict NodePort access to trusted CIDR ranges.
 
 ---
 

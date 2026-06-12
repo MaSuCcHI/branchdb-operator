@@ -67,6 +67,10 @@ spec:
                 type: string
               clusterPort:
                 type: integer
+              credentialSecret:
+                description: CredentialSecret はブランチ固有のパスワードを保存する K8s Secret 名（ZFSDB_BRANCH_AUTH=generated
+                  のときのみ設定）。
+                type: string
               expiresAt:
                 format: date-time
                 type: string

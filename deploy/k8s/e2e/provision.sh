@@ -19,12 +19,15 @@ REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 POOL_NAME="${POOL_NAME:-tank}"
 DATASET="${POOL_NAME}/mysql"
 BRANCHES_DATASET="${DATASET}/branches"
+PG_DATASET="${POOL_NAME}/postgres"
+PG_BRANCHES_DATASET="${PG_DATASET}/branches"
 ZFS_IMG="${ZFS_IMG:-/var/lib/branchdb-e2e/zfs.img}"
 ZFS_IMG_SIZE="${ZFS_IMG_SIZE:-10G}"
 SNAPSHOT_NAME="${SNAPSHOT_NAME:-base}"
 ZFSAGENT_TOKEN="${ZFSAGENT_TOKEN:-e2e-token}"
 ZFSAGENT_PORT="${ZFSAGENT_PORT:-9000}"
 MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.0}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16}"
 
 NERDCTL="nerdctl -n k8s.io"
 
@@ -65,6 +68,10 @@ if ! zfs list "$DATASET" &>/dev/null; then
   zfs create -o mountpoint="/${DATASET}" "$DATASET"
   log "dataset '$DATASET' を作成しました"
 fi
+if ! zfs list "$PG_DATASET" &>/dev/null; then
+  zfs create -o mountpoint="/${PG_DATASET}" "$PG_DATASET"
+  log "dataset '$PG_DATASET' を作成しました"
+fi
 
 # ── 2. MySQL datadir シード ─────────────────────────────────────────────────
 step "2/6 MySQL datadir シード"
@@ -97,6 +104,38 @@ else
   $NERDCTL rm mysql-seed
 fi
 
+# ── 2b. PostgreSQL datadir シード ────────────────────────────────────────────
+step "2b/6 PostgreSQL datadir シード"
+if [[ -f "/${PG_DATASET}/PG_VERSION" ]]; then
+  log "postgres datadir は既にシード済みです"
+else
+  $NERDCTL rm -f pg-seed &>/dev/null || true
+  log "${POSTGRES_IMAGE} で datadir を初期化します..."
+  $NERDCTL run -d --name pg-seed \
+    -e POSTGRES_HOST_AUTH_METHOD=trust \
+    -v "/${PG_DATASET}:/var/lib/postgresql/data" \
+    "$POSTGRES_IMAGE"
+
+  log "PostgreSQL の起動を待機中..."
+  for i in $(seq 1 60); do
+    if $NERDCTL exec pg-seed pg_isready -U postgres &>/dev/null; then
+      log "PostgreSQL ready (${i}回目)"
+      break
+    fi
+    sleep 2
+  done
+
+  $NERDCTL exec pg-seed psql -U postgres -c \
+    "CREATE DATABASE e2e_seed;" || true
+  $NERDCTL exec pg-seed psql -U postgres -d e2e_seed -c \
+    "CREATE TABLE IF NOT EXISTS marker (id INT PRIMARY KEY); \
+     INSERT INTO marker VALUES (1) ON CONFLICT DO NOTHING;"
+  log "シードデータ (e2e_seed.marker) を投入しました"
+
+  $NERDCTL stop pg-seed
+  $NERDCTL rm pg-seed
+fi
+
 # ── 3. ベーススナップショット ───────────────────────────────────────────────
 step "3/6 スナップショット作成"
 if zfs list -t snapshot "${DATASET}@${SNAPSHOT_NAME}" &>/dev/null; then
@@ -104,6 +143,12 @@ if zfs list -t snapshot "${DATASET}@${SNAPSHOT_NAME}" &>/dev/null; then
 else
   zfs snapshot "${DATASET}@${SNAPSHOT_NAME}"
   log "snapshot '${DATASET}@${SNAPSHOT_NAME}' を作成しました"
+fi
+if zfs list -t snapshot "${PG_DATASET}@${SNAPSHOT_NAME}" &>/dev/null; then
+  log "snapshot '${PG_DATASET}@${SNAPSHOT_NAME}' は既に存在します"
+else
+  zfs snapshot "${PG_DATASET}@${SNAPSHOT_NAME}"
+  log "snapshot '${PG_DATASET}@${SNAPSHOT_NAME}' を作成しました"
 fi
 
 # ── 4. branches データセット + NFS 共有 ──────────────────────────────────────
@@ -126,6 +171,15 @@ log "branches データセットに sharenfs を設定しました"
 mount --make-rprivate "/${BRANCHES_DATASET}"
 log "branches マウントを private propagation に設定しました"
 
+if ! zfs list "$PG_BRANCHES_DATASET" &>/dev/null; then
+  zfs create -o mountpoint="/${PG_BRANCHES_DATASET}" "$PG_BRANCHES_DATASET"
+  log "dataset '$PG_BRANCHES_DATASET' を作成しました"
+fi
+zfs set sharenfs='rw,no_root_squash,no_subtree_check,insecure' "$PG_BRANCHES_DATASET"
+systemctl restart nfs-kernel-server || true
+mount --make-rprivate "/${PG_BRANCHES_DATASET}"
+log "postgres branches データセットを NFS 共有 + private propagation に設定しました"
+
 # ── 5. zfsagent サービス ─────────────────────────────────────────────────────
 step "5/6 zfsagent サービス起動"
 cat > /etc/systemd/system/branchdb-zfsagent.service <<EOF
@@ -137,8 +191,7 @@ After=zfs.target nfs-kernel-server.service
 ExecStart=${REPO_DIR}/bin/zfsagent-linux
 Environment=ZFSAGENT_ADDR=:${ZFSAGENT_PORT}
 Environment=ZFSAGENT_TOKEN=${ZFSAGENT_TOKEN}
-Environment=ZFSAGENT_POOL=${POOL_NAME}
-Environment=ZFSAGENT_DATASET=mysql
+Environment=ZFSAGENT_DATASETS=mysql:${DATASET},postgres:${PG_DATASET}
 Restart=on-failure
 RestartSec=2
 
@@ -146,7 +199,9 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now branchdb-zfsagent.service
+systemctl enable branchdb-zfsagent.service
+# enable --now は既に起動中だと再起動しないため、設定・バイナリ更新を確実に反映する
+systemctl restart branchdb-zfsagent.service
 sleep 2
 if curl -sf -H "Authorization: Bearer ${ZFSAGENT_TOKEN}" \
      "http://${NODE_IP}:${ZFSAGENT_PORT}/snapshots" >/dev/null; then

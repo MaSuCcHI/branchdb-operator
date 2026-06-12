@@ -9,6 +9,12 @@ ZFSAGENT_TOKEN  := e2e-token
 ZFSAGENT_PORT   := 9000
 SNAPSHOT_NAME   := base
 
+# VM のアドレス解決（deploy/k8s/e2e/vm-ip.sh 参照）
+# VM_IP:   VM 内部（Pod / zfsagent）から届くアドレス
+# HOST_IP: ホスト（E2E テストランナー）から届くアドレス（専用 IP が無ければ 127.0.0.1）
+VM_IP_CMD   = bash deploy/k8s/e2e/vm-ip.sh $(COLIMA_PROFILE) vm
+HOST_IP_CMD = bash deploy/k8s/e2e/vm-ip.sh $(COLIMA_PROFILE) host
+
 .PHONY: all test cover build fmt web-build generate manifests \
         image-build image-push \
         e2e-k8s-up e2e-k8s-run e2e-k8s-down e2e-k8s-provision \
@@ -83,7 +89,7 @@ e2e-k8s-start:
 	colima start --profile $(COLIMA_PROFILE)
 
 e2e-k8s-provision:
-	$(eval VM_IP := $(shell colima list -j | python3 -c "import sys,json;d=json.load(sys.stdin);[print(x['address']) for x in d if x.get('profile')=='$(COLIMA_PROFILE)']" 2>/dev/null || echo ""))
+	$(eval VM_IP := $(shell $(VM_IP_CMD) 2>/dev/null || echo ""))
 	@if [ -z "$(VM_IP)" ]; then echo "ERROR: VM IP を取得できませんでした"; exit 1; fi
 	@echo "VM IP: $(VM_IP)"
 	colima ssh --profile $(COLIMA_PROFILE) -- \
@@ -94,7 +100,8 @@ e2e-k8s-provision:
 	  bash /Users/$(USER)/sources/branchdb-operator/deploy/k8s/e2e/provision.sh
 
 e2e-k8s-deploy:
-	$(eval VM_IP := $(shell colima list -j | python3 -c "import sys,json;d=json.load(sys.stdin);[print(x['address']) for x in d if x.get('profile')=='$(COLIMA_PROFILE)']" 2>/dev/null || echo ""))
+	$(eval VM_IP := $(shell $(VM_IP_CMD) 2>/dev/null || echo ""))
+	$(eval HOST_IP := $(shell $(HOST_IP_CMD) 2>/dev/null || echo ""))
 	@if [ -z "$(VM_IP)" ]; then echo "ERROR: VM IP を取得できませんでした"; exit 1; fi
 	KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
 	helm upgrade --install branchdb deploy/helm/branchdb \
@@ -103,7 +110,7 @@ e2e-k8s-deploy:
 	  --set installCRDs=true \
 	  --set zfsAgent.url=http://$(VM_IP):$(ZFSAGENT_PORT) \
 	  --set zfsAgent.token=$(ZFSAGENT_TOKEN) \
-	  --set externalHost=$(VM_IP) \
+	  --set externalHost=$(HOST_IP) \
 	  --set image.repository=branchdb-operator \
 	  --set image.tag=e2e \
 	  --set image.pullPolicy=Never \
@@ -112,15 +119,22 @@ e2e-k8s-deploy:
 	  --set apiServer.image.pullPolicy=Never \
 	  --set apiServer.service.type=NodePort \
 	  --wait --timeout 120s
+	# image.tag が固定 (e2e) のため、イメージ再ビルドを Pod に反映するには明示的な再起動が必要
+	KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
+	kubectl -n branchdb-system rollout restart deployment/branchdb deployment/branchdb-api
+	KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
+	kubectl -n branchdb-system rollout status deployment/branchdb --timeout=120s
+	KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
+	kubectl -n branchdb-system rollout status deployment/branchdb-api --timeout=120s
 
 e2e-k8s-run:
-	$(eval VM_IP := $(shell colima list -j | python3 -c "import sys,json;d=json.load(sys.stdin);[print(x['address']) for x in d if x.get('profile')=='$(COLIMA_PROFILE)']" 2>/dev/null || echo ""))
+	$(eval HOST_IP := $(shell $(HOST_IP_CMD) 2>/dev/null || echo ""))
 	$(eval API_PORT := $(shell KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
 	  kubectl get svc -n branchdb-system branchdb-api \
 	  -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "8080"))
-	@echo "E2E: API=http://$(VM_IP):$(API_PORT)  snapshot=$(SNAPSHOT_NAME)"
+	@echo "E2E: API=http://$(HOST_IP):$(API_PORT)  snapshot=$(SNAPSHOT_NAME)"
 	KUBECONFIG="$(HOME)/.colima/$(COLIMA_PROFILE)/kubeconfig" \
-	BRANCHDB_API_URL=http://$(VM_IP):$(API_PORT) \
+	BRANCHDB_API_URL=http://$(HOST_IP):$(API_PORT) \
 	BRANCHDB_SNAPSHOT=$(SNAPSHOT_NAME) \
 	$(GOTEST) ./test/e2e/... -v -timeout 10m -count=1
 

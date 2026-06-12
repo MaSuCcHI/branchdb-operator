@@ -218,11 +218,23 @@ make manifests
 | `ZFSDB_NAMESPACE` | `default` | DatabaseBranch CR の名前空間 |
 | `ZFSDB_ZFSAGENT_URL` | *(未設定)* | ZFS Agent URL（設定時のみスナップショット API 有効） |
 | `ZFSDB_ZFSAGENT_TOKEN` | *(未設定)* | ZFS Agent 認証トークン |
+| `ZFSDB_API_TOKEN` | *(未設定)* | branchdb REST API の静的 Bearer トークン。設定すると `/health` 以外の全 API ルートで `Authorization: Bearer <token>` が必要になる。未設定は後方互換の無認証。 |
+| `ZFSDB_BRANCH_AUTH` | *(未設定)* | `generated` を設定すると Operator がブランチごとにランダムパスワードを生成し `branchdb-cred-<branch>` Secret に保存する。API レスポンスの DSN にパスワードが含まれる。デフォルトは無認証（`MYSQL_ALLOW_EMPTY_PASSWORD`、PostgreSQL は `trust`）。 |
 | `ZFSAGENT_ADDR` | `:9090` | ZFS Agent のリッスンアドレス |
 | `ZFSAGENT_TOKEN` | *(必須)* | ZFS Agent 認証トークン |
 | `ZFSAGENT_POOL` | `tank` | ZFS pool 名（シングルデータセット時） |
 | `ZFSAGENT_DATASET` | `mysql` | ZFS dataset 名（シングルデータセット時） |
 | `ZFSAGENT_DATASETS` | *(未設定)* | マルチデータセット設定 例: `mysql:tank/mysql,postgres:tank/postgres` |
+
+### セキュリティについて
+
+デフォルトではブランチ DB は **NodePort でパスワードなしで外部公開** されます（MySQL は `MYSQL_ALLOW_EMPTY_PASSWORD=yes`、PostgreSQL は `trust` 認証）。開発用途での手軽さを優先した設計ですが、NodePort に到達可能なホストであれば **認証なしで接続できる** ことを意味します。
+
+**共有環境や半パブリックなネットワークでの推奨設定:**
+
+- Operator に `ZFSDB_BRANCH_AUTH=generated` を設定してブランチごとのランダムパスワードを有効化する。パスワードは `branchdb-cred-<branch>` Secret（ownerRef 付き、削除時に自動クリーンアップ）に保存され、API レスポンスの接続 DSN に含まれます。
+- branchdb API サーバーに `ZFSDB_API_TOKEN=<強力なランダムトークン>` を設定して REST API を保護する。設定しない場合、API エンドポイントに到達できれば誰でもブランチの作成・削除やスナップショットリセットなどの破壊的操作が可能です。
+- NetworkPolicy で NodePort へのアクセスを信頼できる CIDR に制限することを検討する。
 
 ---
 

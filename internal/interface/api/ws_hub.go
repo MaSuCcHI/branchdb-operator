@@ -10,7 +10,26 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// CheckOrigin: Origin ヘッダが無い（非ブラウザ）場合は許可、
+	// ある場合は Host と同一オリジンのみ許可してクロスサイト WebSocket ハイジャックを防ぐ。
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Origin なし（非ブラウザクライアント、CLI ツールなど）は許可
+			return true
+		}
+		// Origin の host 部分（scheme + host）と Request の Host ヘッダを比較する
+		// gorilla/websocket の isWebSocketUpgrade は Upgrade ヘッダがある場合のみここに到達する
+		host := r.Host
+		// Origin 形式は "scheme://host[:port]"
+		// r.Host は "host[:port]" 形式
+		for _, scheme := range []string{"https://", "http://"} {
+			if len(origin) > len(scheme) && origin[:len(scheme)] == scheme {
+				return origin[len(scheme):] == host
+			}
+		}
+		return false
+	},
 }
 
 // WSHub manages WebSocket connections and broadcasts events to all clients.

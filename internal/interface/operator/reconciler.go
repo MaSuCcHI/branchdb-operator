@@ -116,6 +116,8 @@ func (r *DatabaseBranchReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	branch.Status.ClusterPort = dbInfo.Port
 	branch.Status.ExternalHost = r.ExternalHost
 	branch.Status.ExternalPort = dbInfo.ExternalPort
+	// CredentialSecret は生成認証が有効なときのみ設定される（空の場合は無認証）。
+	branch.Status.CredentialSecret = dbInfo.CredentialSecret
 
 	if branch.Spec.TTLHours > 0 {
 		expiresAt := metav1.NewTime(time.Now().Add(time.Duration(branch.Spec.TTLHours) * time.Hour))
