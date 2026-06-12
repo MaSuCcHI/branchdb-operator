@@ -9,17 +9,23 @@ import (
 	"time"
 )
 
-// waitForBranchClone はブランチの ZFS クローンが作成されるまで待つ（MySQL 起動は待たない）。
-// Reconciler がクローンを作成するとステータスが "Pending" から変わる。
+// waitForBranchClone はブランチの ZFS クローンが作成されるまで待つ（DB の readiness は待たない）。
+// Reconciler はクローン作成と DB リソース作成の完了後に Ready を設定するため、Ready を待つ。
+// "creating" は API ハンドラがフェーズ未設定時に返すデフォルト値であり、クローンの存在を
+// 意味しないことに注意（ここを通過させると overwrite とのレースになる）。
 func waitForBranchClone(ctx context.Context, t *testing.T, branchName string) {
 	t.Helper()
-	err := waitFor(ctx, 30*time.Second, "branch clone created", func() (bool, error) {
+	err := waitFor(ctx, 60*time.Second, "branch clone created", func() (bool, error) {
 		b, err := get(ctx, branchURL(branchName))
 		if err != nil {
 			return false, nil
 		}
 		status, _ := b["status"].(string)
-		return status != "" && status != "Pending", nil
+		if strings.EqualFold(status, "error") {
+			msg, _ := b["message"].(string)
+			return false, fmt.Errorf("branch error: %s", msg)
+		}
+		return strings.EqualFold(status, "ready"), nil
 	})
 	if err != nil {
 		t.Fatalf("ブランチ %s のクローンが作成されませんでした: %v", branchName, err)
