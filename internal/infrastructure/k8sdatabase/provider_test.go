@@ -615,6 +615,23 @@ func TestStart_PodコンテナにsecurityContextが設定される(t *testing.T)
 	if !dropped {
 		t.Error("Capabilities.Drop に ALL が含まれていない")
 	}
+
+	// 公式 DB イメージは root で entrypoint を実行し、setuid/setgid で DB ユーザーに
+	// 降格してから datadir を chown する。この動作に必要な最小限の capability は
+	// 明示的に戻す（drop ALL のままでは mysqld が "setgid: Operation not permitted" で落ちる）。
+	wantAdd := map[corev1.Capability]bool{
+		"SETUID": false, "SETGID": false, "CHOWN": false, "DAC_OVERRIDE": false, "FOWNER": false,
+	}
+	for _, c := range ctr.SecurityContext.Capabilities.Add {
+		if _, ok := wantAdd[c]; ok {
+			wantAdd[c] = true
+		}
+	}
+	for cap, found := range wantAdd {
+		if !found {
+			t.Errorf("Capabilities.Add に %s が含まれていない（DB エントリポイントの権限降格に必要）", cap)
+		}
+	}
 }
 
 func TestStart_initContainerはrootで動作しsecurityContextはそのまま(t *testing.T) {

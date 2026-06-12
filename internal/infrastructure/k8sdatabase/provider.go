@@ -493,6 +493,11 @@ func (p *Provider) createPod(ctx context.Context, branchName, image string, cfg 
 					AllowPrivilegeEscalation: &allowPrivEsc,
 					Capabilities: &corev1.Capabilities{
 						Drop: []corev1.Capability{"ALL"},
+						// 公式 DB イメージは root で entrypoint を実行し、setuid/setgid で
+						// DB ユーザーへ降格してから datadir を chown する。その動作に必要な
+						// 最小限の capability のみ戻す（無いと mysqld が
+						// "setgid: Operation not permitted" で起動に失敗する）。
+						Add: []corev1.Capability{"SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE", "FOWNER"},
 					},
 				},
 			},

@@ -18,6 +18,10 @@ rules:
   - apiGroups: ["branchdb.io"]
     resources: ["databasebranches"]
     verbs: ["get", "list", "watch", "create", "delete"]
+  # /branches/{name}/pod の Pod ステータス参照と、クレデンシャル Secret の DSN 反映
+  - apiGroups: [""]
+    resources: ["pods", "secrets"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
